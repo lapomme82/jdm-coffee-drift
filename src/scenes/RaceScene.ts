@@ -105,7 +105,7 @@ export class RaceScene extends Phaser.Scene {
     this.updateSpeedLines();
 
     this.uiTimer += dt;
-    if (this.uiTimer >= 0.12) {
+    if (this.uiTimer >= 0.24) {
       this.uiTimer = 0;
       window.dispatchEvent(new CustomEvent("jdm:race-update", { detail: this.getUiSnapshot() }));
     }
@@ -371,11 +371,11 @@ export class RaceScene extends Phaser.Scene {
       nameLabel.setDepth(66 + (this.engine.cars.length - car.rank));
       nameLabel.setAlpha(car.finished ? 0.55 : 0.96);
 
-      if (car.isDrifting && this.engine.elapsed > 1.5 && this.smokeTimer > 0.035) {
+      if (car.isDrifting && this.engine.elapsed > 1.5 && this.smokeTimer > 0.06) {
         this.addSmoke(car);
       }
     }
-    if (this.smokeTimer > 0.035) this.smokeTimer = 0;
+    if (this.smokeTimer > 0.06) this.smokeTimer = 0;
   }
 
   private addSmoke(car: CarRuntime): void {
@@ -448,7 +448,7 @@ export class RaceScene extends Phaser.Scene {
     this.smokeParticles = this.smokeParticles
       .map((particle) => ({ ...particle, ttl: particle.ttl - dt, radius: particle.radius + 18 * dt }))
       .filter((particle) => particle.ttl > 0)
-      .slice(-280);
+      .slice(-150);
 
     for (const particle of this.smokeParticles) {
       const alpha = Math.max(0, particle.ttl / particle.maxTtl) * 0.34;
@@ -569,8 +569,8 @@ export class RaceScene extends Phaser.Scene {
     if (alpha <= 0.02) return;
 
     this.speedGraphics.lineStyle(2, 0xffffff, alpha);
-    for (let x = -120; x < width + 160; x += 92) {
-      const offset = (this.engine.elapsed * 620) % 92;
+    for (let x = -120; x < width + 160; x += 128) {
+      const offset = (this.engine.elapsed * 760) % 128;
       this.speedGraphics.beginPath();
       this.speedGraphics.moveTo(x + offset, 0);
       this.speedGraphics.lineTo(x - 230 + offset, height);

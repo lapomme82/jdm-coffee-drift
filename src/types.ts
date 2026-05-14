@@ -115,6 +115,12 @@ export interface RaceResult {
   coffeeBuyer: boolean;
 }
 
+export interface RaceLapStatus {
+  current: number;
+  total: number;
+  leaderName: string;
+}
+
 export interface RaceSnapshot {
   trackName: string;
   trackDescription: string;
@@ -122,5 +128,6 @@ export interface RaceSnapshot {
   timeLimit: number;
   eventLog: string[];
   leaderboard: LeaderboardEntry[];
+  lap: RaceLapStatus;
   viewportCars?: RaceViewportCar[];
 }

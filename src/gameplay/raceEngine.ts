@@ -1,6 +1,17 @@
 import { getCar } from "../data/cars";
 import { getTrack } from "../data/tracks";
-import type { CarSpec, ItemType, LeaderboardEntry, PlayerConfig, Point, RaceResult, RaceSetup, RaceSnapshot, TrackSpec } from "../types";
+import type {
+  CarSpec,
+  ItemType,
+  LeaderboardEntry,
+  PlayerConfig,
+  Point,
+  RaceLapStatus,
+  RaceResult,
+  RaceSetup,
+  RaceSnapshot,
+  TrackSpec
+} from "../types";
 import { buildTrackRuntime, curvatureAt, getZoneIntensity, isInDriftZone, lookupPath, type TrackRuntime } from "./path";
 import { Rng } from "./rng";
 
@@ -77,7 +88,8 @@ export class RaceEngine {
   readonly runtime: TrackRuntime;
   readonly cars: CarRuntime[];
   readonly maxProgress: number;
-  readonly timeLimit = 132;
+  readonly timeLimit = 180;
+  readonly hardTimeLimit = 210;
   readonly eventLog: string[] = [];
 
   elapsed = 0;
@@ -155,10 +167,10 @@ export class RaceEngine {
     }
     this.updateRanks(true);
 
-    if (this.elapsed >= this.timeLimit) {
-      this.forceComplete();
-    } else if (this.cars.every((car) => car.finished)) {
+    if (this.cars.every((car) => car.finished)) {
       this.complete = true;
+    } else if (this.elapsed >= this.hardTimeLimit) {
+      this.forceComplete();
     }
   }
 
@@ -191,7 +203,26 @@ export class RaceEngine {
       elapsed: this.elapsed,
       timeLimit: this.timeLimit,
       eventLog: this.eventLog.slice(-4).reverse(),
-      leaderboard: this.getLeaderboard()
+      leaderboard: this.getLeaderboard(),
+      lap: this.getLeaderLapStatus()
+    };
+  }
+
+  private getLeaderLapStatus(): RaceLapStatus {
+    const leader = [...this.cars].sort((a, b) => a.rank - b.rank)[0];
+    const lapLength = Math.max(1, this.runtime.totalLength);
+    const total = Math.max(1, this.track.laps);
+    const progress = leader?.finished
+      ? this.maxProgress
+      : Math.max(0, Math.min(this.maxProgress, leader?.progress ?? 0));
+    const current = progress >= this.maxProgress
+      ? total
+      : Math.min(total, Math.floor(progress / lapLength) + 1);
+
+    return {
+      current,
+      total,
+      leaderName: leader?.name ?? ""
     };
   }
 
@@ -235,7 +266,7 @@ export class RaceEngine {
     const zoneIntensity = getZoneIntensity(this.runtime, car.progress);
     const tightCorner = isInDriftZone(this.runtime, car.progress) || curve.amount > 0.43;
     const packPosition = this.cars.length <= 1 ? 0 : (car.rank - 1) / (this.cars.length - 1);
-    const topSpeed = 226 + car.car.topSpeed * 10.8 + car.car.accel * 2.4 - car.car.weight * 1.25;
+    const topSpeed = 244 + car.car.topSpeed * 7.8 + car.car.accel * 2 - car.car.weight * 0.9;
     const cornerPenalty = curve.amount * (0.48 - car.car.grip * 0.03);
     const driftAbility = car.car.drift / 10;
     const cleanCornerSpeed = topSpeed * Math.max(0.5, 1 - cornerPenalty);
@@ -243,13 +274,13 @@ export class RaceEngine {
     const targetBase = tightCorner ? Math.min(cleanCornerSpeed, driftCornerSpeed) : cleanCornerSpeed;
     const trafficJitter = Math.sin(this.elapsed * (0.92 + car.car.accel * 0.04) + car.id.length * 1.7) * 14;
 
-    let targetSpeed = (targetBase + trafficJitter) * (0.985 + packPosition * 0.08);
+    let targetSpeed = (targetBase + trafficJitter) * (0.99 + packPosition * 0.21);
     if (car.turboTime > 0) targetSpeed *= 1.38;
     if (car.disruptedTime > 0) targetSpeed *= 0.7;
     if (car.smokeTime > 0) targetSpeed *= 0.8;
     if (car.spinTime > 0) targetSpeed *= 0.48;
 
-    const acceleration = 92 + car.car.accel * 21 - car.car.weight * 2.4;
+    const acceleration = 108 + car.car.accel * 18 - car.car.weight * 1.6;
     const braking = 148 + car.car.grip * 14;
     if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + acceleration * dt);
     else car.speed = Math.max(targetSpeed, car.speed - braking * dt);
@@ -264,7 +295,7 @@ export class RaceEngine {
 
     if (car.isDrifting) {
       car.driftSeconds += dt;
-      car.sp += dt * (11 + car.car.spGain * 2.6 + car.car.drift * 1.25) * (0.8 + car.driftIntensity + packPosition * 0.22);
+      car.sp += dt * (11 + car.car.spGain * 2.6 + car.car.drift * 1.25) * (0.8 + car.driftIntensity + packPosition * 0.35);
       car.highlightScore += dt * 0.7;
       if (!car.wasDrifting && this.rng.chance(0.72)) {
         this.pushEvent({
@@ -275,13 +306,13 @@ export class RaceEngine {
         });
       }
     } else {
-      car.sp += dt * (2.2 + packPosition * 3.4);
+      car.sp += dt * (2.4 + packPosition * 7.4);
     }
     car.wasDrifting = car.isDrifting;
 
     this.applyHazards(car);
 
-    const rankPush = 0.965 + packPosition * 0.17;
+    const rankPush = 0.97 + packPosition * 0.33;
     car.progress += car.speed * rankPush * dt;
 
     const laneMergeRate = this.elapsed < 7 ? 0.75 : 0.38;
@@ -340,7 +371,7 @@ export class RaceEngine {
     car.sp = 0;
     car.itemUses += 1;
     const packPosition = this.cars.length <= 1 ? 0 : (car.rank - 1) / (this.cars.length - 1);
-    car.itemCooldown = Math.max(3.1, 4.8 + this.rng.range(0, 1.8) - packPosition * 1.35);
+    car.itemCooldown = Math.max(2.3, 4.2 + this.rng.range(0, 1.1) - packPosition * 2.25);
     car.highlightScore += 1.7;
 
     if (item === "turbo") {
@@ -410,7 +441,8 @@ export class RaceEngine {
 
   private chooseItem(car: CarRuntime): ItemType {
     const pool = [...car.car.specialBias];
-    if (car.rank === this.cars.length) pool.push("rocket", "turbo", "lineDisrupt", "turbo");
+    if (car.rank === this.cars.length) pool.push("rocket", "turbo", "lineDisrupt", "turbo", "rocket", "turbo");
+    if (car.rank > this.cars.length * 0.6) pool.push("rocket", "turbo", "lineDisrupt", "turbo");
     if (car.rank === 1) pool.push("banana", "smoke", "shield");
     if (car.isDrifting) pool.push("turbo", "lineDisrupt");
     return this.rng.pick(pool);

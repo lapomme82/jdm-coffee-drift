@@ -10,6 +10,9 @@ const dt = 0.05;
 const maxSteps = 3200;
 
 compileRuntime();
+require.extensions[".png"] = (module, filename) => {
+  module.exports = filename;
+};
 
 const { RaceEngine } = require(path.join(outDir, "gameplay", "raceEngine.js"));
 const { cars } = require(path.join(outDir, "data", "cars.js"));
@@ -146,6 +149,7 @@ function compileRuntime() {
     "src",
     "--outDir",
     outDir,
+    "src/vite-env.d.ts",
     "src/gameplay/raceEngine.ts",
     "src/gameplay/path.ts",
     "src/gameplay/rng.ts",
@@ -155,6 +159,14 @@ function compileRuntime() {
   ], { cwd: root, stdio: "pipe" });
 
   fs.writeFileSync(path.join(outDir, "package.json"), JSON.stringify({ type: "commonjs" }));
+  const sourceAssetDir = path.join(root, "src", "assets", "cars");
+  const targetAssetDir = path.join(outDir, "assets", "cars");
+  fs.mkdirSync(targetAssetDir, { recursive: true });
+  for (const asset of fs.readdirSync(sourceAssetDir)) {
+    if (asset.endsWith(".png")) {
+      fs.writeFileSync(path.join(targetAssetDir, asset), "");
+    }
+  }
 }
 
 function readNumberArg(name, fallback) {

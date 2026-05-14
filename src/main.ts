@@ -45,6 +45,10 @@ let latestResults: RaceResult[] = [];
 const clientId = getClientId();
 let unsubscribeRoom: (() => void) | undefined;
 let roomRaceSignature = "";
+let lobbyRenderSignature = "";
+let pendingLobbyRoom: MultiplayerRoom | undefined;
+let nameUpdateTimer: number | undefined;
+let nameUpdatePromise: Promise<void> | undefined;
 
 const game = new Phaser.Game({
   type: Phaser.CANVAS,
@@ -123,7 +127,7 @@ function bindGlobalEvents(): void {
   uiRoot.addEventListener("input", (event) => {
     const input = event.target as HTMLInputElement;
     if (input.dataset.roomPlayerName) {
-      void updateLocalRoomPlayer({ name: input.value });
+      scheduleRoomNameUpdate(input.value);
       return;
     }
     const index = Number(input.dataset.playerName);
@@ -143,6 +147,12 @@ function bindGlobalEvents(): void {
       state.players[index].carId = select.value;
       renderSetup();
     }
+  });
+
+  uiRoot.addEventListener("focusout", () => {
+    void flushRoomNameUpdate().finally(() => {
+      window.setTimeout(flushPendingLobbyRender, 80);
+    });
   });
 
   window.addEventListener("jdm:race-update", (event) => {
@@ -316,6 +326,8 @@ async function joinRoom(rawCode: string): Promise<void> {
 function subscribeToRoom(code: string): void {
   unsubscribeRoom?.();
   roomRaceSignature = "";
+  lobbyRenderSignature = "";
+  pendingLobbyRoom = undefined;
   unsubscribeRoom = roomStore.subscribe(code, (room) => {
     if (!room) {
       clearRoomSession(false);
@@ -330,17 +342,60 @@ function subscribeToRoom(code: string): void {
         roomRaceSignature = signature;
         const players = sortRoomPlayers(room).map(({ ready: _ready, joinedAt: _joinedAt, ...player }) => player);
         startRace(room.trackId, players, room.seed);
+        unsubscribeRoom?.();
+        unsubscribeRoom = undefined;
       }
       return;
     }
-    if (state.screen === "lobby") renderLobby(room);
+    if (state.screen === "lobby") scheduleLobbyRender(room);
   });
 }
 
-function renderLobby(room: MultiplayerRoom): void {
+function scheduleLobbyRender(room: MultiplayerRoom): void {
+  const nextSignature = getLobbyRenderSignature(room);
+  if (nextSignature === lobbyRenderSignature) return;
+  if (isEditingLobbyControl()) {
+    pendingLobbyRoom = room;
+    return;
+  }
+  renderLobby(room, { preserveScroll: true });
+}
+
+function flushPendingLobbyRender(): void {
+  if (!pendingLobbyRoom || isEditingLobbyControl() || state.screen !== "lobby") return;
+  const room = pendingLobbyRoom;
+  pendingLobbyRoom = undefined;
+  renderLobby(room, { preserveScroll: true });
+}
+
+function getLobbyRenderSignature(room: MultiplayerRoom): string {
+  const players = sortRoomPlayers(room).map((player) => ({
+    id: player.id,
+    name: player.name,
+    carId: player.carId,
+    ready: player.ready,
+    joinedAt: player.joinedAt
+  }));
+  return JSON.stringify({
+    code: room.code,
+    hostId: room.hostId,
+    status: room.status,
+    players
+  });
+}
+
+function isEditingLobbyControl(): boolean {
+  const active = document.activeElement as HTMLElement | null;
+  return Boolean(active?.matches("[data-room-player-name], [data-room-car-select]"));
+}
+
+function renderLobby(room: MultiplayerRoom, options: { preserveScroll?: boolean } = {}): void {
   state.screen = "lobby";
   phaserRoot.classList.add("is-hidden");
   game.scene.stop("RaceScene");
+  const previousScrollTop = options.preserveScroll
+    ? document.querySelector<HTMLElement>(".screen")?.scrollTop ?? window.scrollY
+    : 0;
   const players = sortRoomPlayers(room);
   const currentPlayer = room.players[clientId];
   const allReady = players.length >= 2 && players.every((player) => player.ready);
@@ -371,6 +426,13 @@ function renderLobby(room: MultiplayerRoom): void {
       ${currentPlayer ? `<footer class="setup-footer"><button class="${currentPlayer.ready ? "secondary-button" : "primary-button"}" data-action="toggle-ready">${currentPlayer.ready ? "준비 취소" : "준비 완료"}</button></footer>` : ""}
     </main>
   `;
+  lobbyRenderSignature = getLobbyRenderSignature(room);
+  pendingLobbyRoom = undefined;
+  if (options.preserveScroll) {
+    const screen = document.querySelector<HTMLElement>(".screen");
+    if (screen) screen.scrollTop = previousScrollTop;
+    window.scrollTo({ top: previousScrollTop });
+  }
 }
 
 function renderLobbyPlayer(player: RoomPlayer, index: number, editable: boolean, isHost: boolean): string {
@@ -397,23 +459,88 @@ function renderLobbyPlayer(player: RoomPlayer, index: number, editable: boolean,
   `;
 }
 
+function scheduleRoomNameUpdate(name: string): void {
+  if (nameUpdateTimer !== undefined) window.clearTimeout(nameUpdateTimer);
+  if (state.room?.players[clientId]) {
+    state.room = {
+      ...state.room,
+      players: {
+        ...state.room.players,
+        [clientId]: {
+          ...state.room.players[clientId],
+          name,
+          ready: false
+        }
+      }
+    };
+  }
+  nameUpdateTimer = window.setTimeout(() => {
+    nameUpdateTimer = undefined;
+    void trackNameUpdate(updateLocalRoomPlayer({ name, ready: false }));
+  }, 450);
+}
+
+async function flushRoomNameUpdate(): Promise<void> {
+  if (nameUpdateTimer === undefined) {
+    if (nameUpdatePromise) await nameUpdatePromise;
+    return;
+  }
+  const input = document.querySelector<HTMLInputElement>("[data-room-player-name]");
+  if (!input) {
+    window.clearTimeout(nameUpdateTimer);
+    nameUpdateTimer = undefined;
+    if (nameUpdatePromise) await nameUpdatePromise;
+    return;
+  }
+  window.clearTimeout(nameUpdateTimer);
+  nameUpdateTimer = undefined;
+  await trackNameUpdate(updateLocalRoomPlayer({ name: input.value, ready: false }));
+}
+
+function trackNameUpdate(promise: Promise<void>): Promise<void> {
+  let tracked: Promise<void>;
+  tracked = promise.finally(() => {
+    if (nameUpdatePromise === tracked) nameUpdatePromise = undefined;
+  });
+  nameUpdatePromise = tracked;
+  return tracked;
+}
+
 async function updateLocalRoomPlayer(patch: Partial<RoomPlayer>): Promise<void> {
   if (!state.room) return;
-  await roomStore.updatePlayer(state.room.code, clientId, {
+  const currentPlayer = state.room.players[clientId] ?? {
+    id: clientId,
+    name: normalizeName("", 0),
+    carId: cars[0].id,
+    ready: false,
+    joinedAt: Date.now()
+  };
+  const nextPlayer: RoomPlayer = {
+    ...currentPlayer,
     ...patch,
     id: clientId,
-    joinedAt: state.room.players[clientId]?.joinedAt ?? Date.now()
-  });
+    joinedAt: currentPlayer?.joinedAt ?? Date.now()
+  };
+  state.room = {
+    ...state.room,
+    players: {
+      ...state.room.players,
+      [clientId]: nextPlayer
+    }
+  };
+  await roomStore.updatePlayer(state.room.code, clientId, nextPlayer);
 }
 
 async function toggleReady(): Promise<void> {
   if (!state.room) return;
+  await flushRoomNameUpdate();
   const player = state.room.players[clientId];
   if (!player) return;
   await updateLocalRoomPlayer({ ready: !player.ready });
 }
 
 async function startRoomRace(): Promise<void> {
+  await flushRoomNameUpdate();
   const room = state.room ? await roomStore.getRoom(state.room.code) : undefined;
   if (!room || room.hostId !== clientId) return;
   const players = sortRoomPlayers(room);
@@ -447,6 +574,7 @@ async function startRoomRace(): Promise<void> {
 }
 
 async function leaveRoom(): Promise<void> {
+  await flushRoomNameUpdate();
   if (state.room) {
     await roomStore.removePlayer(state.room.code, clientId);
   }
@@ -455,6 +583,11 @@ async function leaveRoom(): Promise<void> {
 }
 
 function clearRoomSession(unsubscribe = true): void {
+  if (nameUpdateTimer !== undefined) {
+    window.clearTimeout(nameUpdateTimer);
+    nameUpdateTimer = undefined;
+  }
+  nameUpdatePromise = undefined;
   if (unsubscribe) {
     unsubscribeRoom?.();
     unsubscribeRoom = undefined;
@@ -462,6 +595,8 @@ function clearRoomSession(unsubscribe = true): void {
   state.room = undefined;
   state.isRoomHost = undefined;
   roomRaceSignature = "";
+  lobbyRenderSignature = "";
+  pendingLobbyRoom = undefined;
 }
 
 function renderSetup(): void {
@@ -592,7 +727,7 @@ function updateRaceHud(snapshot: RaceSnapshot): void {
   track.textContent = snapshot.trackName;
   desc.textContent = snapshot.trackDescription;
   time.textContent = formatTime(snapshot.elapsed);
-  progress.innerHTML = renderRaceProgress(snapshot.leaderboard);
+  progress.innerHTML = renderRaceProgress(snapshot);
   leaderboard.innerHTML = snapshot.leaderboard.map(renderLeaderboardEntry).join("");
   ticker.innerHTML = snapshot.eventLog.map((message) => `<p>${escapeHtml(message)}</p>`).join("");
   updateRacePanelOverlap(snapshot);
@@ -639,32 +774,32 @@ function renderLeaderboardEntry(entry: LeaderboardEntry): string {
   return `
     <article class="leader-row ${entry.isDrifting ? "is-drifting" : ""}">
       <div class="leader-row__rank">${entry.rank}</div>
-      <div class="leader-car" style="--car-color:${carColor}; --trim-color:${trimColor}">
-        <span class="leader-car__body">
-          <i class="leader-car__tail leader-car__tail--left"></i>
-          <i class="leader-car__tail leader-car__tail--right"></i>
-        </span>
-      </div>
-      <div class="leader-row__body">
-        <div class="leader-row__name">
-          <strong>${escapeHtml(entry.name)}</strong>
-          <span>${escapeHtml(entry.carName)}</span>
-        </div>
-        <div class="sp-strip" title="SP ${Math.round(entry.sp)}% · ${entry.itemUses} items" aria-label="SP ${Math.round(entry.sp)}%">
-          <i style="--sp:${Math.round(entry.sp)}%"></i>
-          <span>${Math.round(entry.sp)}</span>
-        </div>
+      <div class="leader-row__name">
+        <strong>${escapeHtml(entry.name)}</strong>
+        <span>${escapeHtml(entry.carName)}</span>
       </div>
       <div class="speed-dial" style="--speed:${speedPercent}%; --needle:${needleAngle}deg">
         <i></i>
         <strong>${speedKmh}</strong>
         <span>km/h</span>
       </div>
+      <div class="leader-car" style="--car-color:${carColor}; --trim-color:${trimColor}">
+        <span class="leader-car__body">
+          <i class="leader-car__tail leader-car__tail--left"></i>
+          <i class="leader-car__tail leader-car__tail--right"></i>
+        </span>
+      </div>
+      <div class="sp-strip" title="SP ${Math.round(entry.sp)}% · ${entry.itemUses} items" aria-label="SP ${Math.round(entry.sp)}%">
+        <i style="--sp:${Math.round(entry.sp)}%"></i>
+        <span>${Math.round(entry.sp)}</span>
+      </div>
     </article>
   `;
 }
 
-function renderRaceProgress(entries: LeaderboardEntry[]): string {
+function renderRaceProgress(snapshot: RaceSnapshot): string {
+  const entries = snapshot.leaderboard;
+  const lapLabel = `1위 LAP ${snapshot.lap.current}/${snapshot.lap.total}`;
   const markers = [...entries]
     .sort((a, b) => a.rank - b.rank)
     .map((entry) => {
@@ -691,7 +826,10 @@ function renderRaceProgress(entries: LeaderboardEntry[]): string {
   return `
     <div class="race-progress__labels">
       <span>START</span>
-      <strong>RACE POSITION</strong>
+      <strong>
+        RACE POSITION
+        <em class="race-progress__lap" title="${escapeHtml(snapshot.lap.leaderName)}">${lapLabel}</em>
+      </strong>
       <span>FINISH</span>
     </div>
     <div class="race-progress__bar">

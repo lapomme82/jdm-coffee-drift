@@ -333,11 +333,11 @@ export const cars: CarSpec[] = [
     ruleClass: "microExempt",
     raceSpriteWidth: 86,
     colors: { primary: 0xc2410c, secondary: 0x3b2417, trim: 0xfacc15 },
-    topSpeed: 2.5,
-    accel: 1.7,
-    grip: 5.3,
-    drift: 2.7,
-    spGain: 3.8,
+    topSpeed: 3.1,
+    accel: 3.0,
+    grip: 5.8,
+    drift: 3.4,
+    spGain: 5.4,
     weight: 4.4
   },
   {

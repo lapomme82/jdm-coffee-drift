@@ -533,7 +533,8 @@ export class RaceEngine {
 
     const startProgress = this.getAbsoluteFeatureProgress(car.previousProgress, shortcut.start);
     const maxBonus = Math.max(0, this.maxProgress - startProgress - 12);
-    const appliedBonus = Math.min(maxBonus, shortcut.bonusProgress);
+    const shortcutBonus = shortcut.bonusProgress * getShortcutProgressMultiplier(car, packPosition);
+    const appliedBonus = Math.min(maxBonus, shortcutBonus);
     if (appliedBonus <= 0) return;
 
     const shortcutSpeed = (420 + car.car.accel * 22 + packPosition * 92) * (car.car.bodyType === "tractor" ? 0.94 : 1);
@@ -543,7 +544,7 @@ export class RaceEngine {
     car.speed *= car.car.bodyType === "tractor" ? 0.78 : 0.86;
     car.shortcutTime = duration;
     car.shortcutOffset = 0;
-    car.shortcutCooldown = 10.2;
+    car.shortcutCooldown = car.car.bodyType === "tractor" ? 8.2 : 10.2;
     car.shortcutDrive = {
       shortcutId: shortcut.id,
       elapsed: 0,
@@ -820,6 +821,12 @@ function getShortcutDisplaySpeed(car: CarRuntime, packPosition: number): number 
   if (car.car.bodyType === "tractor") return 122 + packPosition * 24;
   if (car.car.bodyType === "rickshaw") return 138 + packPosition * 30;
   return 150 + packPosition * 34;
+}
+
+function getShortcutProgressMultiplier(car: CarRuntime, packPosition: number): number {
+  if (car.car.bodyType === "tractor") return 1.22 + packPosition * 0.18;
+  if (car.car.bodyType === "rickshaw") return 1.03 + packPosition * 0.08;
+  return 1;
 }
 
 function buildShortcutRoute(

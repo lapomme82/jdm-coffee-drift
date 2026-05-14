@@ -43,6 +43,7 @@ export interface CarRuntime {
   shortcutCooldown: number;
   shortcutTime: number;
   shortcutOffset: number;
+  shortcutDrive?: ShortcutDriveState;
   wasDrifting: boolean;
   highlightScore: number;
   lastRank: number;
@@ -89,6 +90,19 @@ export interface ShortcutRuntime {
   bonusProgress: number;
   offsetSign: 1 | -1;
   label: string;
+  route: Point[];
+  routeLength: number;
+}
+
+export interface ShortcutDriveState {
+  shortcutId: string;
+  elapsed: number;
+  duration: number;
+  startProgress: number;
+  endProgress: number;
+  route: Point[];
+  routeLength: number;
+  displaySpeed: number;
 }
 
 export interface PoliceTrapRuntime {
@@ -145,7 +159,7 @@ export class RaceEngine {
     this.maxProgress = this.runtime.totalLength * this.track.laps;
     this.seed = setup.seed ^ this.track.seed;
     this.rng = new Rng(this.seed);
-    this.trafficPlan = buildTrafficPlan(this.track, this.runtime.totalLength);
+    this.trafficPlan = buildTrafficPlan(this.track, this.runtime);
 
     const lanePattern = buildRaceLanePattern(this.track.roadWidth);
     this.cars = setup.players.map((player, index) => {
@@ -181,6 +195,7 @@ export class RaceEngine {
         shortcutCooldown: 2.6 + index * 0.2,
         shortcutTime: 0,
         shortcutOffset: 0,
+        shortcutDrive: undefined,
         wasDrifting: false,
         highlightScore: 0,
         lastRank: index + 1
@@ -314,6 +329,11 @@ export class RaceEngine {
     car.shortcutCooldown = Math.max(0, car.shortcutCooldown - dt);
     car.shortcutTime = Math.max(0, car.shortcutTime - dt);
 
+    if (car.shortcutDrive) {
+      this.updateShortcutDrive(car, dt);
+      return;
+    }
+
     if (car.penaltyTime > 0) {
       this.updateStoppedCar(car, dt);
       return;
@@ -378,8 +398,7 @@ export class RaceEngine {
     const laneMergeRate = this.elapsed < 7 ? 0.75 : 0.38;
     car.laneOffset += (car.targetLaneOffset - car.laneOffset) * Math.min(1, dt * laneMergeRate);
     const laneNoise = Math.sin(this.elapsed * 2.4 + car.rank * 0.9) * (car.isDrifting ? 11 : 3);
-    const shortcutOffset = car.shortcutTime > 0 ? car.shortcutOffset : 0;
-    const lookup = lookupPath(this.runtime, car.progress, car.laneOffset + laneNoise + shortcutOffset);
+    const lookup = lookupPath(this.runtime, car.progress, car.laneOffset + laneNoise);
     car.position = lookup.point;
     car.angle = lookup.angle;
     const slipAngle = car.isDrifting ? curve.sign * (0.28 + car.driftIntensity * 0.55) : 0;
@@ -389,16 +408,7 @@ export class RaceEngine {
       this.useTurbo(car);
     }
 
-    if (car.progress >= this.maxProgress && !car.finished) {
-      car.finished = true;
-      car.finishTime = this.elapsed;
-      this.pushEvent({
-        type: "finish",
-        carId: car.id,
-        message: `${car.name} 결승선 통과!`,
-        intensity: 1
-      });
-    }
+    this.finishCarIfNeeded(car);
   }
 
   private updateStoppedCar(car: CarRuntime, dt: number): void {
@@ -409,6 +419,50 @@ export class RaceEngine {
     car.position = lookup.point;
     car.angle = lookup.angle;
     car.visualAngle = lookup.angle;
+  }
+
+  private updateShortcutDrive(car: CarRuntime, dt: number): void {
+    const drive = car.shortcutDrive;
+    if (!drive) return;
+
+    car.previousProgress = car.progress;
+    drive.elapsed += dt;
+    const t = Math.min(1, drive.elapsed / Math.max(0.1, drive.duration));
+    const eased = easeInOut(t);
+    const routeLookup = lookupShortcutRoute(drive.route, eased);
+
+    car.progress = drive.startProgress + (drive.endProgress - drive.startProgress) * eased;
+    car.position = routeLookup.point;
+    car.angle = routeLookup.angle;
+    car.visualAngle = routeLookup.angle + Math.sin(t * Math.PI) * 0.12;
+    car.speed = drive.displaySpeed;
+    car.maxSpeed = Math.max(car.maxSpeed, car.speed);
+    car.isDrifting = false;
+    car.driftIntensity = 0;
+    car.shortcutTime = Math.max(0, drive.duration - drive.elapsed);
+
+    if (t >= 1) {
+      car.shortcutDrive = undefined;
+      car.shortcutTime = 0;
+      car.shortcutOffset = 0;
+      const exit = lookupPath(this.runtime, car.progress, car.laneOffset);
+      car.position = exit.point;
+      car.angle = exit.angle;
+      car.visualAngle = exit.angle;
+      this.finishCarIfNeeded(car);
+    }
+  }
+
+  private finishCarIfNeeded(car: CarRuntime): void {
+    if (car.progress < this.maxProgress || car.finished) return;
+    car.finished = true;
+    car.finishTime = this.elapsed;
+    this.pushEvent({
+      type: "finish",
+      carId: car.id,
+      message: `${car.name} 결승선 통과!`,
+      intensity: 1
+    });
   }
 
   private getCarTopSpeed(car: CarRuntime): number {
@@ -477,24 +531,35 @@ export class RaceEngine {
     const shortcut = this.trafficPlan.shortcuts.find((candidate) => this.crossedProgress(car.previousProgress, car.progress, candidate.start));
     if (!shortcut) return;
 
-    const maxBonus = Math.max(0, this.maxProgress - car.progress - 12);
-    const shortcutBase = car.car.bodyType === "tractor" ? 1.12 : 1;
-    const catchUpBonus = shortcutBase + packPosition * 0.5;
-    const appliedBonus = Math.min(maxBonus, shortcut.bonusProgress * catchUpBonus);
+    const startProgress = this.getAbsoluteFeatureProgress(car.previousProgress, shortcut.start);
+    const maxBonus = Math.max(0, this.maxProgress - startProgress - 12);
+    const appliedBonus = Math.min(maxBonus, shortcut.bonusProgress);
     if (appliedBonus <= 0) return;
 
-    car.progress += appliedBonus;
-    car.previousProgress = car.progress;
-    car.speed *= car.car.bodyType === "tractor" ? 0.86 : 0.92;
-    car.shortcutTime = 1.7;
-    car.shortcutOffset = shortcut.offsetSign * this.track.roadWidth * 0.86;
+    const shortcutSpeed = (420 + car.car.accel * 22 + packPosition * 92) * (car.car.bodyType === "tractor" ? 0.94 : 1);
+    const duration = Math.max(1.08, Math.min(2.15, shortcut.routeLength / shortcutSpeed));
+    car.progress = startProgress;
+    car.previousProgress = startProgress;
+    car.speed *= car.car.bodyType === "tractor" ? 0.78 : 0.86;
+    car.shortcutTime = duration;
+    car.shortcutOffset = 0;
     car.shortcutCooldown = 10.2;
+    car.shortcutDrive = {
+      shortcutId: shortcut.id,
+      elapsed: 0,
+      duration,
+      startProgress,
+      endProgress: startProgress + appliedBonus,
+      route: shortcut.route,
+      routeLength: shortcut.routeLength,
+      displaySpeed: getShortcutDisplaySpeed(car, packPosition)
+    };
     car.highlightScore += 2.2;
     this.pushEvent({
       type: "shortcut",
       carId: car.id,
       label: "샛길",
-      message: `${car.name} ${shortcut.label} 진입. 일반 도로를 건너뛰었습니다.`,
+      message: `${car.name} ${shortcut.label} 진입. 좁은 골목 루트로 빠집니다.`,
       intensity: 0.9
     });
   }
@@ -636,6 +701,14 @@ export class RaceEngine {
     return previousProgress <= absoluteFeature && nextProgress >= absoluteFeature;
   }
 
+  private getAbsoluteFeatureProgress(previousProgress: number, featureProgress: number): number {
+    const lapLength = this.runtime.totalLength;
+    const lap = Math.floor(Math.max(0, previousProgress) / lapLength);
+    let absoluteFeature = lap * lapLength + featureProgress;
+    if (absoluteFeature < previousProgress) absoluteFeature += lapLength;
+    return absoluteFeature;
+  }
+
   private findTargetAheadFrom(car: CarRuntime, progress: number): CarRuntime | undefined {
     return [...this.cars]
       .filter((candidate) => candidate.id !== car.id && !candidate.finished && candidate.progress > progress)
@@ -685,7 +758,8 @@ export class RaceEngine {
   }
 }
 
-function buildTrafficPlan(track: TrackSpec, lapLength: number): TrackTrafficPlan {
+function buildTrafficPlan(track: TrackSpec, runtime: TrackRuntime): TrackTrafficPlan {
+  const lapLength = runtime.totalLength;
   const rng = new Rng(track.seed ^ 0x51a7c0de);
   const noPassingLength = lapLength * 0.1;
   const noPassingCenters = [0.18, 0.49, 0.78].map((base, index) => normalizeDistance((base + rng.range(-0.035, 0.035)) * lapLength + index * 7, lapLength));
@@ -708,14 +782,18 @@ function buildTrafficPlan(track: TrackSpec, lapLength: number): TrackTrafficPlan
   const shortcutBases = [0.34, 0.68];
   const shortcuts = shortcutBases.map((base, index) => {
     const start = normalizeDistance((base + rng.range(-0.035, 0.035)) * lapLength, lapLength);
-    const bonusProgress = lapLength * rng.range(0.05, 0.066);
+    const bonusProgress = lapLength * rng.range(0.09, 0.112);
+    const end = normalizeDistance(start + bonusProgress, lapLength);
+    const route = buildShortcutRoute(runtime, track.roadWidth, start, end, index % 2 === 0 ? 1 : -1, rng);
     return {
       id: `shortcut-${index + 1}`,
       start,
-      end: normalizeDistance(start + bonusProgress, lapLength),
+      end,
       bonusProgress,
       offsetSign: (index % 2 === 0 ? 1 : -1) as 1 | -1,
-      label: index % 2 === 0 ? "마을 샛길" : "농로 샛길"
+      label: index % 2 === 0 ? "마을 샛길" : "농로 샛길",
+      route,
+      routeLength: getPolylineLength(route)
     };
   });
 
@@ -736,6 +814,66 @@ function buildTrafficPlan(track: TrackSpec, lapLength: number): TrackTrafficPlan
   }
 
   return { noPassingZones, trafficLights, shortcuts, policeTraps };
+}
+
+function getShortcutDisplaySpeed(car: CarRuntime, packPosition: number): number {
+  if (car.car.bodyType === "tractor") return 122 + packPosition * 24;
+  if (car.car.bodyType === "rickshaw") return 138 + packPosition * 30;
+  return 150 + packPosition * 34;
+}
+
+function buildShortcutRoute(
+  runtime: TrackRuntime,
+  roadWidth: number,
+  start: number,
+  end: number,
+  offsetSign: 1 | -1,
+  rng: Rng
+): Point[] {
+  const lapLength = runtime.totalLength;
+  const span = distanceAheadOnLap(start, end, lapLength);
+  const entry = lookupPath(runtime, start, offsetSign * roadWidth * 0.48).point;
+  const exit = lookupPath(runtime, end, offsetSign * roadWidth * 0.48).point;
+  const p1 = lookupPath(runtime, start + span * 0.22, offsetSign * roadWidth * rng.range(1.25, 1.55)).point;
+  const p2 = lookupPath(runtime, start + span * 0.52, offsetSign * roadWidth * rng.range(1.7, 2.05)).point;
+  const p3 = lookupPath(runtime, start + span * 0.8, offsetSign * roadWidth * rng.range(1.18, 1.5)).point;
+  return [entry, p1, p2, p3, exit];
+}
+
+function lookupShortcutRoute(route: Point[], t: number): { point: Point; angle: number } {
+  if (route.length < 2) {
+    const fallback = route[0] ?? { x: 0, y: 0 };
+    return { point: fallback, angle: 0 };
+  }
+
+  const totalLength = getPolylineLength(route);
+  const targetDistance = Math.max(0, Math.min(totalLength, totalLength * t));
+  let walked = 0;
+
+  for (let index = 1; index < route.length; index += 1) {
+    const previous = route[index - 1];
+    const next = route[index];
+    const segmentLength = pointDistance(previous, next);
+    if (walked + segmentLength >= targetDistance || index === route.length - 1) {
+      const segmentT = segmentLength <= 0 ? 0 : (targetDistance - walked) / segmentLength;
+      const point = {
+        x: previous.x + (next.x - previous.x) * segmentT,
+        y: previous.y + (next.y - previous.y) * segmentT
+      };
+      return {
+        point,
+        angle: Math.atan2(next.y - previous.y, next.x - previous.x)
+      };
+    }
+    walked += segmentLength;
+  }
+
+  const last = route[route.length - 1];
+  const beforeLast = route[route.length - 2];
+  return {
+    point: last,
+    angle: Math.atan2(last.y - beforeLast.y, last.x - beforeLast.x)
+  };
 }
 
 function buildRaceLanePattern(roadWidth: number): number[] {
@@ -786,4 +924,20 @@ function circularDistance(a: number, b: number, lapLength: number): number {
 
 function seededChance(key: string, probability: number): boolean {
   return new Rng(hashSeed(key)).chance(probability);
+}
+
+function getPolylineLength(points: Point[]): number {
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    length += pointDistance(points[index - 1], points[index]);
+  }
+  return length;
+}
+
+function pointDistance(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function easeInOut(t: number): number {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }

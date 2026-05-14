@@ -48,6 +48,8 @@ export class RaceScene extends Phaser.Scene {
   private simulationAccumulator = 0;
   private uiTimer = 0;
   private smokeTimer = 0;
+  private finalDramaCarId?: string;
+  private finalDramaAnnounced = false;
   private completeDispatched = false;
 
   constructor() {
@@ -76,6 +78,8 @@ export class RaceScene extends Phaser.Scene {
     this.simulationAccumulator = 0;
     this.uiTimer = 0;
     this.smokeTimer = 0;
+    this.finalDramaCarId = undefined;
+    this.finalDramaAnnounced = false;
     this.smokeParticles = [];
     this.carSprites.clear();
     this.carBaseScales.clear();
@@ -105,6 +109,8 @@ export class RaceScene extends Phaser.Scene {
 
     const frameDt = Math.min(MAX_FRAME_DELTA, delta / 1000);
     this.simulationAccumulator += frameDt;
+    this.updateFinalDramaState();
+    const simulationTimeScale = this.getSimulationTimeScale();
 
     let simulationSteps = 0;
     while (
@@ -112,7 +118,7 @@ export class RaceScene extends Phaser.Scene {
       !this.engine.complete &&
       simulationSteps < MAX_SIMULATION_STEPS_PER_FRAME
     ) {
-      this.engine.update(FIXED_SIMULATION_STEP);
+      this.engine.update(FIXED_SIMULATION_STEP * simulationTimeScale);
       this.handleEvents(this.engine.events);
       this.simulationAccumulator -= FIXED_SIMULATION_STEP;
       simulationSteps += 1;
@@ -303,16 +309,7 @@ export class RaceScene extends Phaser.Scene {
     this.trafficGraphics.clear();
 
     for (const shortcut of plan.shortcuts) {
-      const length = getWrappedZoneLength(shortcut.start, shortcut.end, runtime.totalLength);
-      this.trafficGraphics.lineStyle(5, 0x7ee081, 0.58);
-      for (let offset = 0; offset < length; offset += 56) {
-        const start = lookupPath(runtime, normalizeLapDistance(shortcut.start + offset, runtime.totalLength), shortcut.offsetSign * track.roadWidth * 0.82);
-        const end = lookupPath(runtime, normalizeLapDistance(shortcut.start + offset + 30, runtime.totalLength), shortcut.offsetSign * track.roadWidth * 0.92);
-        this.trafficGraphics.beginPath();
-        this.trafficGraphics.moveTo(start.point.x, start.point.y);
-        this.trafficGraphics.lineTo(end.point.x, end.point.y);
-        this.trafficGraphics.strokePath();
-      }
+      this.drawShortcutRoute(shortcut.route, track.category);
     }
 
     for (const light of plan.trafficLights) {
@@ -346,6 +343,47 @@ export class RaceScene extends Phaser.Scene {
       this.trafficGraphics.lineStyle(3, 0xffffff, 0.42);
       this.trafficGraphics.strokeCircle(x, y, 24);
     }
+  }
+
+  private drawShortcutRoute(route: Array<{ x: number; y: number }>, category: string): void {
+    const roadColor = category === "city" ? 0x232a31 : category === "country" ? 0x60492f : 0x2f342c;
+    this.trafficGraphics.lineStyle(30, 0x0b0f12, 0.58);
+    this.strokeOpenPath(this.trafficGraphics, route);
+    this.trafficGraphics.lineStyle(22, roadColor, 0.98);
+    this.strokeOpenPath(this.trafficGraphics, route);
+    this.trafficGraphics.lineStyle(4, 0x7ee081, 0.72);
+    for (let index = 1; index < route.length; index += 1) {
+      const from = route[index - 1];
+      const to = route[index];
+      const segmentLength = Math.hypot(to.x - from.x, to.y - from.y);
+      const dashCount = Math.max(1, Math.floor(segmentLength / 34));
+      for (let dash = 0; dash < dashCount; dash += 2) {
+        const a = dash / dashCount;
+        const b = Math.min(1, (dash + 1) / dashCount);
+        this.trafficGraphics.beginPath();
+        this.trafficGraphics.moveTo(Phaser.Math.Linear(from.x, to.x, a), Phaser.Math.Linear(from.y, to.y, a));
+        this.trafficGraphics.lineTo(Phaser.Math.Linear(from.x, to.x, b), Phaser.Math.Linear(from.y, to.y, b));
+        this.trafficGraphics.strokePath();
+      }
+    }
+
+    const entry = route[0];
+    const exit = route[route.length - 1];
+    this.trafficGraphics.fillStyle(0x7ee081, 0.92);
+    this.trafficGraphics.fillCircle(entry.x, entry.y, 10);
+    this.trafficGraphics.fillStyle(0xf7b267, 0.9);
+    this.trafficGraphics.fillCircle(exit.x, exit.y, 8);
+  }
+
+  private strokeOpenPath(graphics: Phaser.GameObjects.Graphics, points: Array<{ x: number; y: number }>): void {
+    const [first] = points;
+    if (!first) return;
+    graphics.beginPath();
+    graphics.moveTo(first.x, first.y);
+    for (let index = 1; index < points.length; index += 1) {
+      graphics.lineTo(points[index].x, points[index].y);
+    }
+    graphics.strokePath();
   }
 
   private strokeClosedPath(points: Array<{ x: number; y: number }>): void {
@@ -569,6 +607,8 @@ export class RaceScene extends Phaser.Scene {
         this.spawnItemCallout(event);
       }
 
+      if (this.finalDramaCarId) continue;
+
       const focusCandidate = this.getEventFocusCandidate(event);
       if (!focusCandidate || this.cameraSwitchCooldown > 0) continue;
 
@@ -630,15 +670,21 @@ export class RaceScene extends Phaser.Scene {
 
     const camera = this.cameras.main;
     const zoom = this.getCameraZoom();
-    camera.setZoom(Phaser.Math.Linear(camera.zoom, zoom, 0.018));
+    const isFinalDrama = Boolean(this.finalDramaCarId);
+    camera.setZoom(Phaser.Math.Linear(camera.zoom, zoom, isFinalDrama ? 0.045 : 0.018));
 
     const targetX = focusCar.position.x - camera.width / (2 * camera.zoom);
     const targetY = focusCar.position.y - camera.height / (2 * camera.zoom);
-    camera.scrollX = Phaser.Math.Linear(camera.scrollX, targetX, 0.035);
-    camera.scrollY = Phaser.Math.Linear(camera.scrollY, targetY, 0.035);
+    camera.scrollX = Phaser.Math.Linear(camera.scrollX, targetX, isFinalDrama ? 0.075 : 0.035);
+    camera.scrollY = Phaser.Math.Linear(camera.scrollY, targetY, isFinalDrama ? 0.075 : 0.035);
   }
 
   private getFocusCar(): CarRuntime | undefined {
+    if (this.finalDramaCarId) {
+      const finalCar = this.engine.cars.find((car) => car.id === this.finalDramaCarId && !car.finished);
+      if (finalCar) return finalCar;
+    }
+
     if (this.focusTimer > 0 && this.focusCarId) {
       const focused = this.engine.cars.find((car) => car.id === this.focusCarId && !car.finished);
       if (focused) return focused;
@@ -660,9 +706,62 @@ export class RaceScene extends Phaser.Scene {
 
   private getCameraZoom(): number {
     const width = this.scale.width;
+    if (this.finalDramaCarId) return width < 720 ? 1.02 : 1.18;
     if (width < 720) return 0.72;
     if (this.focusTimer > 0) return 0.94;
     return 0.78;
+  }
+
+  private updateFinalDramaState(): void {
+    const car = this.getFinalDramaCar();
+    if (!car) {
+      if (!this.engine.complete) this.finalDramaCarId = undefined;
+      return;
+    }
+
+    this.finalDramaCarId = car.id;
+    this.focusCarId = car.id;
+    this.focusTimer = Math.max(this.focusTimer, 3.2);
+    this.cameraSwitchCooldown = Math.max(this.cameraSwitchCooldown, 3.2);
+
+    if (!this.finalDramaAnnounced) {
+      this.finalDramaAnnounced = true;
+      this.spawnFinalDramaCallout(car);
+      this.cameras.main.flash(140, 255, 247, 237, false);
+    }
+  }
+
+  private getFinalDramaCar(): CarRuntime | undefined {
+    const active = this.engine.cars.filter((car) => !car.finished);
+    if (active.length !== 1) return undefined;
+    const [lastCar] = active;
+    const remaining = this.engine.maxProgress - lastCar.progress;
+    return remaining > 0 && remaining < 560 ? lastCar : undefined;
+  }
+
+  private getSimulationTimeScale(): number {
+    return this.finalDramaCarId ? 0.34 : 1;
+  }
+
+  private spawnFinalDramaCallout(car: CarRuntime): void {
+    const label = this.add.text(car.position.x, car.position.y - 96, "COFFEE MOMENT", {
+      fontFamily: "Arial, sans-serif",
+      fontSize: "24px",
+      fontStyle: "900",
+      color: "#ff2f4f",
+      backgroundColor: "#fff7ed",
+      padding: { x: 12, y: 6 }
+    }).setOrigin(0.5).setDepth(90);
+
+    this.tweens.add({
+      targets: label,
+      y: label.y - 62,
+      alpha: 0,
+      scale: 1.3,
+      duration: 1600,
+      ease: "Cubic.easeOut",
+      onComplete: () => label.destroy()
+    });
   }
 
   private updateSpeedLines(): void {

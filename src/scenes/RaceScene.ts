@@ -13,9 +13,14 @@ interface SmokeParticle {
   maxTtl: number;
 }
 
+type FacingDirection = 1 | -1;
+
 const CAR_INITIAL_SCALE = 0.98;
 const CAR_RUNNING_SCALE = 1.03;
 const CAR_TURBO_SCALE = 1.13;
+const CAR_INGAME_SIZE_SCALE = 0.7;
+const CAR_DIRECTION_DEAD_ZONE = 0.08;
+const CAR_MAX_VISUAL_TILT = 0.38;
 const CAR_SHADOW_OFFSET_X = 5;
 const CAR_SHADOW_OFFSET_Y = 6;
 
@@ -24,6 +29,7 @@ export class RaceScene extends Phaser.Scene {
   private engine!: RaceEngine;
   private carSprites = new Map<string, Phaser.GameObjects.Image>();
   private carBaseScales = new Map<string, number>();
+  private carFacingDirections = new Map<string, FacingDirection>();
   private shadowSprites = new Map<string, Phaser.GameObjects.Ellipse>();
   private nameLabels = new Map<string, Phaser.GameObjects.Text>();
   private hazardLabels = new Map<string, Phaser.GameObjects.Text>();
@@ -67,6 +73,7 @@ export class RaceScene extends Phaser.Scene {
     this.smokeParticles = [];
     this.carSprites.clear();
     this.carBaseScales.clear();
+    this.carFacingDirections.clear();
     this.shadowSprites.clear();
     this.nameLabels.clear();
     this.hazardLabels.clear();
@@ -329,11 +336,14 @@ export class RaceScene extends Phaser.Scene {
         backgroundColor: "#fff7ed",
         padding: { x: 5, y: 2 }
       }).setOrigin(0.5).setDepth(64);
-      sprite.setRotation(car.visualAngle);
+      const facingDirection = getFacingDirection(car.angle);
+      sprite.setFlipX(facingDirection === -1);
+      sprite.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
       sprite.setScale(baseScale * CAR_INITIAL_SCALE);
       this.shadowSprites.set(car.id, shadow);
       this.carSprites.set(car.id, sprite);
       this.carBaseScales.set(car.id, baseScale);
+      this.carFacingDirections.set(car.id, facingDirection);
       this.nameLabels.set(car.id, nameLabel);
     }
   }
@@ -347,8 +357,11 @@ export class RaceScene extends Phaser.Scene {
       if (!sprite || !shadow || !nameLabel) continue;
 
       const baseScale = this.carBaseScales.get(car.id) ?? 1;
+      const facingDirection = getFacingDirection(car.angle, this.carFacingDirections.get(car.id) ?? 1);
+      this.carFacingDirections.set(car.id, facingDirection);
       sprite.setPosition(car.position.x, car.position.y);
-      sprite.setRotation(car.visualAngle);
+      sprite.setFlipX(facingDirection === -1);
+      sprite.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
       sprite.setDepth(15 + (this.engine.cars.length - car.rank));
       sprite.setAlpha(car.finished ? 0.72 : 1);
       sprite.setScale(baseScale * (car.turboTime > 0 ? CAR_TURBO_SCALE : CAR_RUNNING_SCALE));
@@ -590,8 +603,20 @@ function getCarTextureKey(car: CarSpec): string {
   return `car-sprite-${car.id}`;
 }
 
+function getFacingDirection(angle: number, previous: FacingDirection = 1): FacingDirection {
+  const horizontalMotion = Math.cos(angle);
+  if (Math.abs(horizontalMotion) < CAR_DIRECTION_DEAD_ZONE) return previous;
+  return horizontalMotion >= 0 ? 1 : -1;
+}
+
+function getSideViewTilt(angle: number, direction: FacingDirection): number {
+  const baseAngle = direction === 1 ? 0 : Math.PI;
+  const tilt = Phaser.Math.Angle.Wrap(angle - baseAngle);
+  return Phaser.Math.Clamp(tilt, -CAR_MAX_VISUAL_TILT, CAR_MAX_VISUAL_TILT);
+}
+
 function getRaceSpriteWidth(car: CarSpec): number {
-  return car.raceSpriteWidth;
+  return car.raceSpriteWidth * CAR_INGAME_SIZE_SCALE;
 }
 
 function getShadowWidth(car: CarSpec): number {

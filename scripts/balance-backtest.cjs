@@ -110,7 +110,7 @@ const biggestSkews = rows.map((row) => ({
   car: row.car,
   winSkew: row.winRate - expectedRate,
   lastSkew: row.lastRate - expectedRate,
-  rankSkew: row.avgRank - 4.5
+  rankSkew: row.avgRank - ((cars.length + 1) / 2)
 }));
 
 const summary = {

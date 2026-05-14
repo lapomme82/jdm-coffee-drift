@@ -218,7 +218,7 @@ function renderTitle(): void {
       <section class="title-strip" aria-label="race mood">
         <span>TOUGE</span>
         <span>HAIRPIN</span>
-        <span>SP ITEM</span>
+        <span>SP TURBO</span>
         <span>BROADCAST CAM</span>
       </section>
     </main>
@@ -469,7 +469,7 @@ function renderLobbyPlayer(player: RoomPlayer, index: number, editable: boolean,
             ${cars.map((candidate) => `<option value="${candidate.id}" ${candidate.id === car.id ? "selected" : ""}>${candidate.name}</option>`).join("")}
           </select>
         </label>
-      ` : `<p class="car-role">${escapeHtml(car.name)} · ${escapeHtml(car.gimmick.name)}</p>`}
+      ` : `<p class="car-role">${escapeHtml(car.name)} · ${getRuleClassLabel(car.ruleClass)}</p>`}
       <p class="ready-badge">${isHost ? "HOST" : "GUEST"} · ${player.ready ? "READY" : "WAIT"}</p>
     </article>
   `;
@@ -676,7 +676,7 @@ function renderPlayerCard(player: PlayerConfig, index: number): string {
         </select>
       </label>
       <p class="car-role">${escapeHtml(car.role)}</p>
-      <p class="car-gimmick"><strong>${escapeHtml(car.gimmick.name)}</strong>${escapeHtml(car.gimmick.description)}</p>
+      <p class="car-reference">${renderReferencePerformance(car)}</p>
       <p class="car-description">${escapeHtml(car.description)}</p>
       <div class="stat-grid">
         ${renderStat("최고속", car.topSpeed)}
@@ -697,6 +697,22 @@ function renderStat(label: string, value: number): string {
       <i style="--stat:${value * 10}%"></i>
     </div>
   `;
+}
+
+function renderReferencePerformance(car: ReturnType<typeof getCar>): string {
+  const reference = car.reference;
+  const zeroToHundred = reference.zeroToHundredSec >= 90 ? "측정 불가" : `${reference.zeroToHundredSec.toFixed(1)}s`;
+  return `
+    <strong>${escapeHtml(reference.model)}</strong>
+    <span>${reference.powerHp}hp · 0-100 ${zeroToHundred} · ${reference.topSpeedKmh}km/h · ${reference.weightKg}kg</span>
+    <em>${getRuleClassLabel(car.ruleClass)}</em>
+  `;
+}
+
+function getRuleClassLabel(ruleClass: string): string {
+  if (ruleClass === "sportsRisk") return "고성능 스포츠카 · 추월금지 위반 리스크";
+  if (ruleClass === "microExempt") return "소형 예외 차량 · 신호/경찰 제외 + 샛길 가능";
+  return "일반 차량 · 신호/추월금지 규칙 적용";
 }
 
 function startRace(forceTrackId?: string, forcedPlayers?: PlayerConfig[], forcedSeed?: number): void {

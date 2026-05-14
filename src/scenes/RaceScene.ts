@@ -39,6 +39,7 @@ export class RaceScene extends Phaser.Scene {
   private smokeParticles: SmokeParticle[] = [];
   private trackGraphics!: Phaser.GameObjects.Graphics;
   private hazardGraphics!: Phaser.GameObjects.Graphics;
+  private trafficGraphics!: Phaser.GameObjects.Graphics;
   private smokeGraphics!: Phaser.GameObjects.Graphics;
   private speedGraphics!: Phaser.GameObjects.Graphics;
   private focusCarId?: string;
@@ -88,6 +89,8 @@ export class RaceScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, this.engine.track.world.width, this.engine.track.world.height);
 
     this.drawTrack();
+    this.trafficGraphics = this.add.graphics().setDepth(6);
+    this.updateTrafficGraphics();
     this.createCars();
 
     this.hazardGraphics = this.add.graphics();
@@ -120,6 +123,7 @@ export class RaceScene extends Phaser.Scene {
 
     this.updateCarSprites(frameDt);
     this.updateHazards();
+    this.updateTrafficGraphics();
     this.updateSmoke(frameDt);
     this.updateCamera(frameDt);
     this.updateSpeedLines();
@@ -157,15 +161,7 @@ export class RaceScene extends Phaser.Scene {
 
     this.drawPixelRoadDetails(rng);
 
-    this.trackGraphics.lineStyle(7, track.theme.line, 0.78);
-    for (let d = 0; d < runtime.totalLength; d += 86) {
-      const start = lookupPath(runtime, d);
-      const end = lookupPath(runtime, d + 34);
-      this.trackGraphics.beginPath();
-      this.trackGraphics.moveTo(start.point.x, start.point.y);
-      this.trackGraphics.lineTo(end.point.x, end.point.y);
-      this.trackGraphics.strokePath();
-    }
+    this.drawLaneMarkings();
 
     this.trackGraphics.lineStyle(8, track.theme.accent, 0.72);
     for (const zone of runtime.driftZones) {
@@ -260,6 +256,95 @@ export class RaceScene extends Phaser.Scene {
       this.trackGraphics.moveTo(railC.x, railC.y);
       this.trackGraphics.lineTo(railD.x, railD.y);
       this.trackGraphics.strokePath();
+    }
+  }
+
+  private drawLaneMarkings(): void {
+    const { track, runtime } = this.engine;
+
+    this.trackGraphics.lineStyle(5, 0xf8fafc, 0.74);
+    for (let d = 0; d < runtime.totalLength; d += 72) {
+      if (this.engine.getRoadRule(d) === "noPassing") continue;
+      const start = lookupPath(runtime, d);
+      const end = lookupPath(runtime, d + 32);
+      this.trackGraphics.beginPath();
+      this.trackGraphics.moveTo(start.point.x, start.point.y);
+      this.trackGraphics.lineTo(end.point.x, end.point.y);
+      this.trackGraphics.strokePath();
+    }
+
+    this.trackGraphics.lineStyle(4, 0xffd166, 0.92);
+    for (const zone of this.engine.getTrafficPlan().noPassingZones) {
+      const length = getWrappedZoneLength(zone.start, zone.end, runtime.totalLength);
+      for (let offset = 0; offset < length; offset += 38) {
+        const distance = normalizeLapDistance(zone.start + offset, runtime.totalLength);
+        for (const laneOffset of [-6, 6]) {
+          const start = lookupPath(runtime, distance, laneOffset);
+          const end = lookupPath(runtime, distance + 28, laneOffset);
+          this.trackGraphics.beginPath();
+          this.trackGraphics.moveTo(start.point.x, start.point.y);
+          this.trackGraphics.lineTo(end.point.x, end.point.y);
+          this.trackGraphics.strokePath();
+        }
+      }
+
+      for (let offset = 0; offset < length; offset += 112) {
+        const warning = lookupPath(runtime, normalizeLapDistance(zone.start + offset, runtime.totalLength), -track.roadWidth * 0.44).point;
+        this.trackGraphics.fillStyle(0xffd166, 0.7);
+        this.trackGraphics.fillRect(Math.round(warning.x / 4) * 4 - 6, Math.round(warning.y / 4) * 4 - 6, 12, 12);
+      }
+    }
+  }
+
+  private updateTrafficGraphics(): void {
+    if (!this.trafficGraphics) return;
+    const { track, runtime } = this.engine;
+    const plan = this.engine.getTrafficPlan();
+    this.trafficGraphics.clear();
+
+    for (const shortcut of plan.shortcuts) {
+      const length = getWrappedZoneLength(shortcut.start, shortcut.end, runtime.totalLength);
+      this.trafficGraphics.lineStyle(5, 0x7ee081, 0.58);
+      for (let offset = 0; offset < length; offset += 56) {
+        const start = lookupPath(runtime, normalizeLapDistance(shortcut.start + offset, runtime.totalLength), shortcut.offsetSign * track.roadWidth * 0.82);
+        const end = lookupPath(runtime, normalizeLapDistance(shortcut.start + offset + 30, runtime.totalLength), shortcut.offsetSign * track.roadWidth * 0.92);
+        this.trafficGraphics.beginPath();
+        this.trafficGraphics.moveTo(start.point.x, start.point.y);
+        this.trafficGraphics.lineTo(end.point.x, end.point.y);
+        this.trafficGraphics.strokePath();
+      }
+    }
+
+    for (const light of plan.trafficLights) {
+      const isRed = this.engine.isTrafficLightRed(light);
+      const base = lookupPath(runtime, light.progress, track.roadWidth * 0.64);
+      const x = base.point.x;
+      const y = base.point.y;
+      this.trafficGraphics.lineStyle(4, 0x101317, 0.9);
+      this.trafficGraphics.beginPath();
+      this.trafficGraphics.moveTo(x - base.normal.x * 22, y - base.normal.y * 22);
+      this.trafficGraphics.lineTo(x + base.normal.x * 10, y + base.normal.y * 10);
+      this.trafficGraphics.strokePath();
+      this.trafficGraphics.fillStyle(0x101317, 0.95);
+      this.trafficGraphics.fillRoundedRect(x - 12, y - 22, 24, 44, 3);
+      this.trafficGraphics.fillStyle(isRed ? 0xff2f4f : 0x4b5563, 1);
+      this.trafficGraphics.fillCircle(x, y - 10, 7);
+      this.trafficGraphics.fillStyle(isRed ? 0x4b5563 : 0x7ee081, 1);
+      this.trafficGraphics.fillCircle(x, y + 10, 7);
+    }
+
+    for (const trap of plan.policeTraps) {
+      const base = lookupPath(runtime, trap.progress, -track.roadWidth * 0.68);
+      const x = base.point.x;
+      const y = base.point.y;
+      this.trafficGraphics.fillStyle(0x101317, 0.82);
+      this.trafficGraphics.fillRect(x - 18, y - 14, 36, 28);
+      this.trafficGraphics.fillStyle(0x4cc9f0, 0.95);
+      this.trafficGraphics.fillRect(x - 14, y - 10, 12, 20);
+      this.trafficGraphics.fillStyle(0xff2f4f, 0.95);
+      this.trafficGraphics.fillRect(x + 2, y - 10, 12, 20);
+      this.trafficGraphics.lineStyle(3, 0xffffff, 0.42);
+      this.trafficGraphics.strokeCircle(x, y, 24);
     }
   }
 
@@ -479,7 +564,7 @@ export class RaceScene extends Phaser.Scene {
 
   private handleEvents(events: RaceEngineEvent[]): void {
     for (const event of events) {
-      if (event.type === "item" || event.type === "hit" || event.type === "gimmick") {
+      if (event.type === "item" || event.type === "traffic" || event.type === "shortcut") {
         this.cameras.main.shake(120, 0.004 * event.intensity);
         this.spawnItemCallout(event);
       }
@@ -489,7 +574,7 @@ export class RaceScene extends Phaser.Scene {
 
       const backPackRank = Math.max(2, this.engine.cars.length - 2);
       const isBackPack = focusCandidate.rank >= backPackRank;
-      const isMajorMoment = event.type === "item" || event.type === "hit" || event.type === "gimmick";
+      const isMajorMoment = event.type === "item" || event.type === "traffic" || event.type === "shortcut";
       const isWorthCuttingTo = isMajorMoment || (isBackPack && event.type === "overtake") || (isBackPack && event.type === "drift" && event.intensity > 1.05);
 
       if (!isWorthCuttingTo || event.type === "finish") continue;
@@ -503,7 +588,7 @@ export class RaceScene extends Phaser.Scene {
   private getEventFocusCandidate(event: RaceEngineEvent): CarRuntime | undefined {
     if (event.type === "finish") return undefined;
 
-    const preferredId = event.type === "hit" ? event.carId : event.targetId ?? event.carId;
+    const preferredId = event.targetId ?? event.carId;
     const preferred = this.engine.cars.find((car) => car.id === preferredId && !car.finished);
     if (preferred) return preferred;
 
@@ -514,13 +599,14 @@ export class RaceScene extends Phaser.Scene {
     const car = this.engine.cars.find((candidate) => candidate.id === event.carId);
     if (!car) return;
 
-    const item = event.item ?? (event.type === "hit" ? "banana" : "turbo");
+    const item = event.item ?? "turbo";
     const labelText = event.label ?? getItemLabel(item);
+    const color = event.type === "traffic" ? "#ff5a5f" : event.type === "shortcut" ? "#7ee081" : getItemColor(item);
     const label = this.add.text(car.position.x, car.position.y - 78, labelText, {
       fontFamily: "Arial, sans-serif",
       fontSize: "22px",
       fontStyle: "900",
-      color: event.type === "gimmick" ? "#f7b267" : getItemColor(item),
+      color,
       backgroundColor: "#101317",
       padding: { x: 10, y: 5 }
     }).setOrigin(0.5).setDepth(88);
@@ -661,26 +747,25 @@ function getNameOffsetY(car: CarSpec): number {
 
 function getItemLabel(item: ItemType): string {
   const labels: Record<ItemType, string> = {
-    banana: "BANANA",
-    rocket: "ROCKET",
-    turbo: "TURBO",
-    shield: "SHIELD",
-    smoke: "SMOKE",
-    lineDisrupt: "LINE CUT"
+    turbo: "TURBO"
   };
   return labels[item];
 }
 
 function getItemColor(item: ItemType): string {
   const colors: Record<ItemType, string> = {
-    banana: "#ffd166",
-    rocket: "#ff5a5f",
-    turbo: "#4cc9f0",
-    shield: "#7ee081",
-    smoke: "#dbeafe",
-    lineDisrupt: "#f472b6"
+    turbo: "#4cc9f0"
   };
   return colors[item];
+}
+
+function normalizeLapDistance(value: number, total: number): number {
+  const normalized = value % total;
+  return normalized < 0 ? normalized + total : normalized;
+}
+
+function getWrappedZoneLength(start: number, end: number, total: number): number {
+  return end >= start ? end - start : total - start + end;
 }
 
 function lighten(color: number, amount: number): number {

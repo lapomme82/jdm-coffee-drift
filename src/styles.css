@@ -497,10 +497,10 @@ h1 {
   line-height: 1.45;
 }
 
-.car-gimmick {
+.car-reference {
   display: grid;
   gap: 4px;
-  min-height: 58px;
+  min-height: 66px;
   margin: -4px 0 14px;
   padding: 8px 10px;
   border: 1px solid rgba(247, 178, 103, 0.34);
@@ -511,9 +511,20 @@ h1 {
   line-height: 1.38;
 }
 
-.car-gimmick strong {
+.car-reference strong {
   color: #f7b267;
   font-size: 12px;
+}
+
+.car-reference span,
+.car-reference em {
+  color: rgba(245, 238, 220, 0.78);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.car-reference em {
+  color: #9bf6ff;
 }
 
 .car-description {

@@ -1,4 +1,4 @@
-export type ItemType = "banana" | "rocket" | "turbo" | "shield" | "smoke" | "lineDisrupt";
+export type ItemType = "turbo";
 
 export interface Point {
   x: number;
@@ -18,23 +18,15 @@ export type VehicleBodyType =
   | "tractor"
   | "scooter";
 
-export type VehicleGimmickId =
-  | "balancedDraft"
-  | "evSurge"
-  | "apexLine"
-  | "bodyBlock"
-  | "offroadGuard"
-  | "luxuryShield"
-  | "straightBurst"
-  | "hyperOverheat"
-  | "alleyShortcut"
-  | "farmShortcut"
-  | "courierDash";
+export type VehicleRuleClass = "standard" | "sportsRisk" | "microExempt";
 
-export interface VehicleGimmick {
-  id: VehicleGimmickId;
-  name: string;
-  description: string;
+export interface ReferencePerformance {
+  model: string;
+  powerHp: number;
+  zeroToHundredSec: number;
+  topSpeedKmh: number;
+  weightKg: number;
+  source: string;
 }
 
 export interface CarSpec {
@@ -44,6 +36,8 @@ export interface CarSpec {
   description: string;
   sprite: string;
   bodyType: VehicleBodyType;
+  reference: ReferencePerformance;
+  ruleClass: VehicleRuleClass;
   raceSpriteWidth: number;
   colors: {
     primary: number;
@@ -56,8 +50,6 @@ export interface CarSpec {
   drift: number;
   spGain: number;
   weight: number;
-  specialBias: ItemType[];
-  gimmick: VehicleGimmick;
 }
 
 export interface PlayerConfig {

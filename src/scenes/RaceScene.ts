@@ -23,6 +23,9 @@ const CAR_DIRECTION_DEAD_ZONE = 0.08;
 const CAR_MAX_VISUAL_TILT = 0.38;
 const CAR_SHADOW_OFFSET_X = 5;
 const CAR_SHADOW_OFFSET_Y = 6;
+const FIXED_SIMULATION_STEP = 1 / 30;
+const MAX_FRAME_DELTA = 0.25;
+const MAX_SIMULATION_STEPS_PER_FRAME = 10;
 
 export class RaceScene extends Phaser.Scene {
   private setup!: RaceSetup;
@@ -41,6 +44,7 @@ export class RaceScene extends Phaser.Scene {
   private focusCarId?: string;
   private focusTimer = 0;
   private cameraSwitchCooldown = 0;
+  private simulationAccumulator = 0;
   private uiTimer = 0;
   private smokeTimer = 0;
   private completeDispatched = false;
@@ -68,6 +72,7 @@ export class RaceScene extends Phaser.Scene {
     this.focusCarId = undefined;
     this.focusTimer = 0;
     this.cameraSwitchCooldown = 0;
+    this.simulationAccumulator = 0;
     this.uiTimer = 0;
     this.smokeTimer = 0;
     this.smokeParticles = [];
@@ -95,16 +100,31 @@ export class RaceScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (!this.engine || this.completeDispatched) return;
 
-    const dt = delta / 1000;
-    this.engine.update(dt);
-    this.handleEvents(this.engine.events);
-    this.updateCarSprites(dt);
+    const frameDt = Math.min(MAX_FRAME_DELTA, delta / 1000);
+    this.simulationAccumulator += frameDt;
+
+    let simulationSteps = 0;
+    while (
+      this.simulationAccumulator >= FIXED_SIMULATION_STEP &&
+      !this.engine.complete &&
+      simulationSteps < MAX_SIMULATION_STEPS_PER_FRAME
+    ) {
+      this.engine.update(FIXED_SIMULATION_STEP);
+      this.handleEvents(this.engine.events);
+      this.simulationAccumulator -= FIXED_SIMULATION_STEP;
+      simulationSteps += 1;
+    }
+    if (simulationSteps >= MAX_SIMULATION_STEPS_PER_FRAME) {
+      this.simulationAccumulator = Math.min(this.simulationAccumulator, FIXED_SIMULATION_STEP * 2);
+    }
+
+    this.updateCarSprites(frameDt);
     this.updateHazards();
-    this.updateSmoke(dt);
-    this.updateCamera(dt);
+    this.updateSmoke(frameDt);
+    this.updateCamera(frameDt);
     this.updateSpeedLines();
 
-    this.uiTimer += dt;
+    this.uiTimer += frameDt;
     if (this.uiTimer >= 0.24) {
       this.uiTimer = 0;
       window.dispatchEvent(new CustomEvent("jdm:race-update", { detail: this.getUiSnapshot() }));

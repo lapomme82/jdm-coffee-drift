@@ -1,4 +1,4 @@
-import type { PlayerConfig } from "./types";
+import type { PlayerConfig, RaceResult } from "./types";
 
 export type RoomStatus = "lobby" | "racing" | "complete";
 
@@ -17,6 +17,8 @@ export interface MultiplayerRoom {
   trackId?: string;
   seed?: number;
   startedAt?: number;
+  completedAt?: number;
+  results?: RaceResult[];
 }
 
 type RoomPatch = Partial<Omit<MultiplayerRoom, "code">>;
@@ -55,7 +57,7 @@ export function createRoomCode(): string {
 }
 
 export function sortRoomPlayers(room: MultiplayerRoom): RoomPlayer[] {
-  return Object.values(room.players ?? {}).sort((a, b) => a.joinedAt - b.joinedAt);
+  return Object.values(room.players ?? {}).sort((a, b) => a.joinedAt - b.joinedAt || a.id.localeCompare(b.id));
 }
 
 class FirebaseRoomStore implements RoomStore {

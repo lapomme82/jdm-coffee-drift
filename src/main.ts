@@ -45,10 +45,13 @@ let latestResults: RaceResult[] = [];
 const clientId = getClientId();
 let unsubscribeRoom: (() => void) | undefined;
 let roomRaceSignature = "";
+let roomCompleteSignature = "";
 let lobbyRenderSignature = "";
 let pendingLobbyRoom: MultiplayerRoom | undefined;
 let nameUpdateTimer: number | undefined;
 let nameUpdatePromise: Promise<void> | undefined;
+let resultRenderSignature = "";
+let resultRenderTimer: number | undefined;
 
 const game = new Phaser.Game({
   type: Phaser.CANVAS,
@@ -162,7 +165,11 @@ function bindGlobalEvents(): void {
 
   window.addEventListener("jdm:race-complete", (event) => {
     latestResults = (event as CustomEvent<RaceResult[]>).detail;
-    window.setTimeout(() => renderResults(latestResults), 900);
+    if (state.room?.status === "racing") {
+      if (state.isRoomHost) void publishRoomResults(latestResults);
+      return;
+    }
+    scheduleRenderResults(latestResults);
   });
 }
 
@@ -326,6 +333,7 @@ async function joinRoom(rawCode: string): Promise<void> {
 function subscribeToRoom(code: string): void {
   unsubscribeRoom?.();
   roomRaceSignature = "";
+  roomCompleteSignature = "";
   lobbyRenderSignature = "";
   pendingLobbyRoom = undefined;
   unsubscribeRoom = roomStore.subscribe(code, (room) => {
@@ -336,14 +344,22 @@ function subscribeToRoom(code: string): void {
     }
     state.room = room;
     state.isRoomHost = room.hostId === clientId;
+    if (room.status === "complete" && room.results?.length) {
+      const signature = `${room.code}:${room.completedAt ?? room.updatedAt}:${getResultsSignature(room.results)}`;
+      if (signature !== roomCompleteSignature) {
+        roomCompleteSignature = signature;
+        scheduleRenderResults(room.results);
+        unsubscribeRoom?.();
+        unsubscribeRoom = undefined;
+      }
+      return;
+    }
     if (room.status === "racing" && room.trackId && room.seed) {
       const signature = `${room.code}:${room.seed}:${room.trackId}:${room.startedAt ?? 0}`;
       if (signature !== roomRaceSignature) {
         roomRaceSignature = signature;
         const players = sortRoomPlayers(room).map(({ ready: _ready, joinedAt: _joinedAt, ...player }) => player);
         startRace(room.trackId, players, room.seed);
-        unsubscribeRoom?.();
-        unsubscribeRoom = undefined;
       }
       return;
     }
@@ -573,6 +589,16 @@ async function startRoomRace(): Promise<void> {
   });
 }
 
+async function publishRoomResults(results: RaceResult[]): Promise<void> {
+  if (!state.room || !state.isRoomHost) return;
+  await roomStore.updateRoom(state.room.code, {
+    status: "complete",
+    completedAt: Date.now(),
+    results
+  });
+  scheduleRenderResults(results);
+}
+
 async function leaveRoom(): Promise<void> {
   await flushRoomNameUpdate();
   if (state.room) {
@@ -595,6 +621,7 @@ function clearRoomSession(unsubscribe = true): void {
   state.room = undefined;
   state.isRoomHost = undefined;
   roomRaceSignature = "";
+  roomCompleteSignature = "";
   lobbyRenderSignature = "";
   pendingLobbyRoom = undefined;
 }
@@ -687,6 +714,11 @@ function startRace(forceTrackId?: string, forcedPlayers?: PlayerConfig[], forced
   state.screen = "race";
   latestSnapshot = undefined;
   latestResults = [];
+  resultRenderSignature = "";
+  if (resultRenderTimer !== undefined) {
+    window.clearTimeout(resultRenderTimer);
+    resultRenderTimer = undefined;
+  }
 
   phaserRoot.classList.remove("is-hidden");
   uiRoot.innerHTML = `
@@ -851,6 +883,31 @@ function formatHudBadge(name: string): string {
   const letters = Array.from(name.trim());
   if (letters.length <= 2) return name.trim() || "AI";
   return letters.slice(0, 2).join("");
+}
+
+function scheduleRenderResults(results: RaceResult[], delay = 900): void {
+  const signature = getResultsSignature(results);
+  if (state.screen === "results" && signature === resultRenderSignature) return;
+  resultRenderSignature = signature;
+  latestResults = results;
+  if (resultRenderTimer !== undefined) window.clearTimeout(resultRenderTimer);
+  resultRenderTimer = window.setTimeout(() => {
+    resultRenderTimer = undefined;
+    renderResults(results);
+  }, delay);
+}
+
+function getResultsSignature(results: RaceResult[]): string {
+  return results
+    .map((result) => [
+      result.id,
+      result.rank,
+      result.finishTime.toFixed(3),
+      Math.round(result.maxSpeed * 100),
+      result.itemUses,
+      result.coffeeBuyer ? 1 : 0
+    ].join(":"))
+    .join("|");
 }
 
 function renderResults(results: RaceResult[]): void {

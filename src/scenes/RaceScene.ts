@@ -479,7 +479,7 @@ export class RaceScene extends Phaser.Scene {
 
   private handleEvents(events: RaceEngineEvent[]): void {
     for (const event of events) {
-      if (event.type === "item" || event.type === "hit") {
+      if (event.type === "item" || event.type === "hit" || event.type === "gimmick") {
         this.cameras.main.shake(120, 0.004 * event.intensity);
         this.spawnItemCallout(event);
       }
@@ -489,7 +489,7 @@ export class RaceScene extends Phaser.Scene {
 
       const backPackRank = Math.max(2, this.engine.cars.length - 2);
       const isBackPack = focusCandidate.rank >= backPackRank;
-      const isMajorMoment = event.type === "item" || event.type === "hit";
+      const isMajorMoment = event.type === "item" || event.type === "hit" || event.type === "gimmick";
       const isWorthCuttingTo = isMajorMoment || (isBackPack && event.type === "overtake") || (isBackPack && event.type === "drift" && event.intensity > 1.05);
 
       if (!isWorthCuttingTo || event.type === "finish") continue;
@@ -515,11 +515,12 @@ export class RaceScene extends Phaser.Scene {
     if (!car) return;
 
     const item = event.item ?? (event.type === "hit" ? "banana" : "turbo");
-    const label = this.add.text(car.position.x, car.position.y - 78, getItemLabel(item), {
+    const labelText = event.label ?? getItemLabel(item);
+    const label = this.add.text(car.position.x, car.position.y - 78, labelText, {
       fontFamily: "Arial, sans-serif",
       fontSize: "22px",
       fontStyle: "900",
-      color: getItemColor(item),
+      color: event.type === "gimmick" ? "#f7b267" : getItemColor(item),
       backgroundColor: "#101317",
       padding: { x: 10, y: 5 }
     }).setOrigin(0.5).setDepth(88);

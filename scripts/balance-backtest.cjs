@@ -19,6 +19,9 @@ const { cars } = require(path.join(outDir, "data", "cars.js"));
 const { tracks } = require(path.join(outDir, "data", "tracks.js"));
 
 const rng = mulberry32(seed);
+let midRaceSpreadSum = 0;
+let finishSpreadSum = 0;
+let raceDurationSum = 0;
 const stats = new Map(
   cars.map((car) => [
     car.id,
@@ -52,12 +55,20 @@ for (let raceIndex = 0; raceIndex < races; raceIndex += 1) {
 
   const engine = new RaceEngine({ players, trackId: track.id, seed: raceSeed });
   let steps = 0;
+  let midRaceSpread;
   while (!engine.complete && steps < maxSteps) {
     engine.update(dt);
+    if (midRaceSpread === undefined && engine.elapsed >= 60) {
+      midRaceSpread = getProgressSpread(engine);
+    }
     steps += 1;
   }
 
   const results = engine.getResults();
+  const finishTimes = results.map((result) => result.finishTime);
+  midRaceSpreadSum += midRaceSpread ?? getProgressSpread(engine);
+  finishSpreadSum += Math.max(...finishTimes) - Math.min(...finishTimes);
+  raceDurationSum += Math.max(...finishTimes);
   for (const result of results) {
     const carStat = stats.get(result.id);
     carStat.races += 1;
@@ -113,6 +124,9 @@ const summary = {
   weakest: rows[rows.length - 1].car,
   maxWinSkew: round(Math.max(...biggestSkews.map((row) => Math.abs(row.winSkew)))),
   maxLastSkew: round(Math.max(...biggestSkews.map((row) => Math.abs(row.lastSkew)))),
+  avgMidRaceProgressSpread: round(midRaceSpreadSum / races),
+  avgFinishTimeSpread: round(finishSpreadSum / races),
+  avgRaceDuration: round(raceDurationSum / races),
   rows: rows.map((row) => ({
     car: row.car,
     avgRank: round(row.avgRank),
@@ -187,6 +201,11 @@ function shuffle(items, random) {
 
 function nextInt(random, min, max) {
   return Math.floor(random() * (max - min + 1)) + min;
+}
+
+function getProgressSpread(engine) {
+  const progresses = engine.cars.map((car) => Math.max(0, Math.min(engine.maxProgress, car.progress)));
+  return ((Math.max(...progresses) - Math.min(...progresses)) / engine.maxProgress) * 100;
 }
 
 function mulberry32(seedValue) {

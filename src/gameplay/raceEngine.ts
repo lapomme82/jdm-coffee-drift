@@ -42,16 +42,21 @@ export interface CarRuntime {
   smokeTime: number;
   spinTime: number;
   itemCooldown: number;
+  gimmickCooldown: number;
+  shortcutTime: number;
+  shortcutOffset: number;
+  overheatTime: number;
   wasDrifting: boolean;
   highlightScore: number;
   lastRank: number;
 }
 
 export interface RaceEngineEvent {
-  type: "drift" | "item" | "hit" | "overtake" | "finish";
+  type: "drift" | "item" | "hit" | "overtake" | "finish" | "gimmick";
   carId: string;
   targetId?: string;
   item?: ItemType;
+  label?: string;
   message: string;
   intensity: number;
 }
@@ -139,6 +144,10 @@ export class RaceEngine {
         smokeTime: 0,
         spinTime: 0,
         itemCooldown: 1.1 + index * 0.14,
+        gimmickCooldown: 3.2 + index * 0.31,
+        shortcutTime: 0,
+        shortcutOffset: 0,
+        overheatTime: 0,
         wasDrifting: false,
         highlightScore: 0,
         lastRank: index + 1
@@ -261,21 +270,27 @@ export class RaceEngine {
     car.smokeTime = Math.max(0, car.smokeTime - dt);
     car.spinTime = Math.max(0, car.spinTime - dt);
     car.itemCooldown = Math.max(0, car.itemCooldown - dt);
+    car.gimmickCooldown = Math.max(0, car.gimmickCooldown - dt);
+    car.shortcutTime = Math.max(0, car.shortcutTime - dt);
+    car.overheatTime = Math.max(0, car.overheatTime - dt);
 
     const curve = curvatureAt(this.runtime, car.progress);
     const zoneIntensity = getZoneIntensity(this.runtime, car.progress);
     const tightCorner = isInDriftZone(this.runtime, car.progress) || curve.amount > 0.43;
     const packPosition = this.cars.length <= 1 ? 0 : (car.rank - 1) / (this.cars.length - 1);
-    const topSpeed = 244 + car.car.topSpeed * 7.8 + car.car.accel * 2 - car.car.weight * 0.9;
+    const topSpeed = 252 + car.car.topSpeed * 8.1 + car.car.accel * 2 - car.car.weight * 0.75;
     const cornerPenalty = curve.amount * (0.48 - car.car.grip * 0.03);
     const driftAbility = car.car.drift / 10;
     const cleanCornerSpeed = topSpeed * Math.max(0.5, 1 - cornerPenalty);
     const driftCornerSpeed = topSpeed * (0.58 + driftAbility * 0.18 + car.car.grip * 0.012);
     const targetBase = tightCorner ? Math.min(cleanCornerSpeed, driftCornerSpeed) : cleanCornerSpeed;
     const trafficJitter = Math.sin(this.elapsed * (0.92 + car.car.accel * 0.04) + car.id.length * 1.7) * 14;
+    const gimmickSpeedMultiplier = this.updateVehicleGimmick(car, dt, curve.amount, tightCorner, packPosition, zoneIntensity, topSpeed);
 
-    let targetSpeed = (targetBase + trafficJitter) * (0.99 + packPosition * 0.21);
+    let targetSpeed = (targetBase + trafficJitter) * (0.995 + packPosition * 0.035) * gimmickSpeedMultiplier;
+    targetSpeed *= this.getTrafficSpeedFactor(car);
     if (car.turboTime > 0) targetSpeed *= 1.38;
+    if (car.overheatTime > 0 && (car.turboTime <= 0 || tightCorner)) targetSpeed *= 0.82;
     if (car.disruptedTime > 0) targetSpeed *= 0.7;
     if (car.smokeTime > 0) targetSpeed *= 0.8;
     if (car.spinTime > 0) targetSpeed *= 0.48;
@@ -295,7 +310,7 @@ export class RaceEngine {
 
     if (car.isDrifting) {
       car.driftSeconds += dt;
-      car.sp += dt * (11 + car.car.spGain * 2.6 + car.car.drift * 1.25) * (0.8 + car.driftIntensity + packPosition * 0.35);
+      car.sp += dt * (11 + car.car.spGain * 2.6 + car.car.drift * 1.25) * (0.8 + car.driftIntensity + packPosition * 0.1);
       car.highlightScore += dt * 0.7;
       if (!car.wasDrifting && this.rng.chance(0.72)) {
         this.pushEvent({
@@ -306,19 +321,21 @@ export class RaceEngine {
         });
       }
     } else {
-      car.sp += dt * (2.4 + packPosition * 7.4);
+      car.sp += dt * (2.4 + packPosition * 2.5);
     }
     car.wasDrifting = car.isDrifting;
 
     this.applyHazards(car);
 
-    const rankPush = 0.97 + packPosition * 0.33;
-    car.progress += car.speed * rankPush * dt;
+    const rankPush = 0.99 + packPosition * 0.045;
+    const racePace = this.cars.length <= 2 ? 1.12 : 1.06;
+    car.progress += car.speed * rankPush * racePace * dt;
 
     const laneMergeRate = this.elapsed < 7 ? 0.75 : 0.38;
     car.laneOffset += (car.targetLaneOffset - car.laneOffset) * Math.min(1, dt * laneMergeRate);
     const laneNoise = Math.sin(this.elapsed * 2.4 + car.rank * 0.9) * (car.isDrifting ? 11 : 3);
-    const lookup = lookupPath(this.runtime, car.progress, car.laneOffset + laneNoise);
+    const shortcutOffset = car.shortcutTime > 0 ? car.shortcutOffset : 0;
+    const lookup = lookupPath(this.runtime, car.progress, car.laneOffset + laneNoise + shortcutOffset);
     car.position = lookup.point;
     car.angle = lookup.angle;
     const slipAngle = car.isDrifting ? curve.sign * (0.28 + car.driftIntensity * 0.55) : 0;
@@ -339,6 +356,174 @@ export class RaceEngine {
         intensity: 1
       });
     }
+  }
+
+  private updateVehicleGimmick(
+    car: CarRuntime,
+    dt: number,
+    curveAmount: number,
+    tightCorner: boolean,
+    packPosition: number,
+    zoneIntensity: number,
+    topSpeed: number
+  ): number {
+    const gimmickId = car.car.gimmick.id;
+    const canTrigger = car.gimmickCooldown <= 0 && this.elapsed > 5;
+    const lateRace = car.progress / this.maxProgress > 0.55;
+    let speedMultiplier = 1;
+
+    if (gimmickId === "balancedDraft") {
+      const target = this.findTargetAhead(car);
+      const gap = target ? target.progress - car.progress : 9999;
+      if (gap > 45 && gap < 300) {
+        speedMultiplier += 0.08;
+        car.sp += dt * (2.8 + packPosition * 2.5);
+        if (canTrigger && packPosition > 0.15) {
+          car.gimmickCooldown = 12;
+          this.pushGimmickEvent(car, "DRAFT", `${car.name} 슬립 드래프트로 앞차 바람을 타고 따라붙습니다.`, target?.id);
+        }
+      }
+    }
+
+    if (gimmickId === "evSurge" && canTrigger && (curveAmount < 0.16 || packPosition > 0.42)) {
+      car.turboTime = Math.max(car.turboTime, 2.8 + packPosition * 1.2);
+      car.gimmickCooldown = 16;
+      car.highlightScore += 1.2;
+      this.pushGimmickEvent(car, "EV SURGE", `${car.name} 전기 서지. 순간 토크로 차간 거리를 찢고 나갑니다.`);
+    }
+
+    if (gimmickId === "apexLine" && tightCorner && car.speed > topSpeed * 0.28) {
+      speedMultiplier += 0.015 + zoneIntensity * 0.02;
+      car.sp += dt * 1.6;
+      if (canTrigger) {
+        car.gimmickCooldown = 15;
+        this.pushGimmickEvent(car, "APEX", `${car.name} 에이펙스 라인. 코너 탈출 속도가 살아납니다.`);
+      }
+    }
+
+    if (gimmickId === "bodyBlock" && canTrigger && lateRace && packPosition > 0.62) {
+      const heavyBonus = car.car.weight >= 9 ? 1.35 : 1;
+      this.activateShortcut(car, (340 + packPosition * 260) * heavyBonus, 12, 0.94, "SHOULDER", `${car.name} 갓길 밀어붙이기. 무거운 차체로 혼잡한 구간을 뚫습니다.`);
+      const leader = this.findLeaderExcept(car);
+      if (leader) {
+        leader.disruptedTime = Math.max(leader.disruptedTime, 1.5);
+        leader.speed *= 0.9;
+      }
+      car.turboTime = Math.max(car.turboTime, 3.0);
+      car.shieldTime = Math.max(car.shieldTime, 3.4);
+      car.sp += 32;
+    } else if (gimmickId === "bodyBlock" && canTrigger && packPosition > 0.45) {
+      car.turboTime = Math.max(car.turboTime, 3.4 + packPosition * 1.5);
+      car.shieldTime = Math.max(car.shieldTime, 3.2);
+      car.sp += car.car.weight >= 9 ? 26 : 18;
+      car.gimmickCooldown = 13;
+      car.highlightScore += 1.2;
+      this.pushGimmickEvent(car, "HEAVY PUSH", `${car.name} 헤비 푸시. 묵직한 차체로 다시 속도를 붙입니다.`);
+    } else if (gimmickId === "bodyBlock" && canTrigger) {
+      const chaser = this.findCloseBehind(car, 145);
+      if (chaser) {
+        car.shieldTime = Math.max(car.shieldTime, 2.6);
+        chaser.disruptedTime = Math.max(chaser.disruptedTime, 1.25);
+        chaser.speed *= 0.88;
+        car.gimmickCooldown = 15;
+        this.pushGimmickEvent(car, "BLOCK", `${car.name} 바디 블록. ${chaser.name}의 추격 라인이 막혔습니다.`, chaser.id);
+      }
+    }
+
+    if (gimmickId === "offroadGuard") {
+      if (tightCorner) speedMultiplier += 0.07;
+      if (canTrigger && lateRace && packPosition > 0.58) {
+        this.activateShortcut(car, 210 + packPosition * 180, 14, 0.9, "DIRT CUT", `${car.name} 더트 컷. 가드레일 바깥 거친 길로 순위를 당깁니다.`);
+        car.turboTime = Math.max(car.turboTime, 2.0);
+        car.shieldTime = Math.max(car.shieldTime, 3.0);
+      } else if (canTrigger && packPosition > 0.55) {
+        car.turboTime = Math.max(car.turboTime, 2.1 + packPosition);
+        car.shieldTime = Math.max(car.shieldTime, 2.8);
+        car.gimmickCooldown = 15;
+        this.pushGimmickEvent(car, "OFFROAD", `${car.name} 오프로드 가드. 거친 길을 밟고 재가속합니다.`);
+      } else if (canTrigger) {
+        const chaser = this.findCloseBehind(car, 125);
+        if (chaser) {
+          chaser.disruptedTime = Math.max(chaser.disruptedTime, 1.0);
+          car.shieldTime = Math.max(car.shieldTime, 2.2);
+          car.gimmickCooldown = 14;
+          this.pushGimmickEvent(car, "GUARD", `${car.name} 오프로드 가드. 거친 라인으로 뒤차를 밀어냅니다.`, chaser.id);
+        }
+      }
+    }
+
+    if (gimmickId === "luxuryShield" && canTrigger && packPosition > 0.5) {
+      car.shieldTime = Math.max(car.shieldTime, 4.6);
+      car.turboTime = Math.max(car.turboTime, 2.4 + packPosition);
+      car.gimmickCooldown = 16;
+      car.highlightScore += 1;
+      this.pushGimmickEvent(car, "SHIELD", `${car.name} 프리미엄 실드. 하위권에서 안정적으로 재가속합니다.`);
+    }
+
+    if (gimmickId === "straightBurst" && canTrigger && curveAmount < 0.13) {
+      car.turboTime = Math.max(car.turboTime, 2.2);
+      car.gimmickCooldown = 24;
+      car.highlightScore += 1.2;
+      this.pushGimmickEvent(car, "STRAIGHT", `${car.name} 직선 사냥. 직선 구간에서 단숨에 벌립니다.`);
+    }
+    if (gimmickId === "straightBurst" && tightCorner) {
+      speedMultiplier *= 0.97;
+    }
+
+    if (gimmickId === "hyperOverheat" && canTrigger && curveAmount < 0.12) {
+      car.turboTime = Math.max(car.turboTime, 3.4);
+      car.overheatTime = Math.max(car.overheatTime, 7.5);
+      car.gimmickCooldown = 20;
+      car.highlightScore += 1.5;
+      this.pushGimmickEvent(car, "OVERHEAT", `${car.name} 오버히트 부스트. 직선은 압도적이지만 다음 코너가 부담입니다.`);
+    }
+
+    if (gimmickId === "alleyShortcut" && canTrigger && tightCorner && packPosition > 0.2) {
+      this.activateShortcut(car, 310 + packPosition * 220 + zoneIntensity * 110, 17, 0.9, "SHORTCUT", `${car.name} 샛길 돌파. 헤어핀 안쪽 골목으로 레이스를 가로지릅니다.`);
+    }
+
+    if (gimmickId === "farmShortcut" && canTrigger && tightCorner && packPosition > 0.18) {
+      const farmBonus = lateRace
+        ? 650 + packPosition * 420 + zoneIntensity * 160
+        : 450 + packPosition * 320 + zoneIntensity * 130;
+      this.activateShortcut(car, farmBonus, 19, 0.86, "FARM ROAD", `${car.name} 논두렁 루트. 느리지만 농로 지름길로 단번에 따라붙습니다.`);
+      car.shieldTime = Math.max(car.shieldTime, 2.4);
+    }
+
+    if (gimmickId === "courierDash" && canTrigger && packPosition > 0.22 && (tightCorner || curveAmount < 0.18)) {
+      this.activateShortcut(car, 120 + packPosition * 120, 16, 0.95, "DELIVERY", `${car.name} 배달 골목질주. 좁은 라인으로 빠르게 파고듭니다.`);
+      car.turboTime = Math.max(car.turboTime, 2.2);
+    }
+
+    return speedMultiplier;
+  }
+
+  private activateShortcut(car: CarRuntime, bonusProgress: number, cooldown: number, speedRetain: number, label: string, message: string): void {
+    const maxBonus = Math.max(0, this.maxProgress - car.progress);
+    const appliedBonus = Math.min(maxBonus, bonusProgress);
+    if (appliedBonus <= 0) return;
+
+    const direction = Math.sin(car.progress * 0.017 + car.rank) >= 0 ? 1 : -1;
+    car.progress += appliedBonus;
+    car.previousProgress = car.progress;
+    car.speed *= speedRetain;
+    car.shortcutTime = 1.6;
+    car.shortcutOffset = direction * this.track.roadWidth * 0.78;
+    car.gimmickCooldown = cooldown;
+    car.highlightScore += 2.1;
+    this.pushGimmickEvent(car, label, message);
+  }
+
+  private getTrafficSpeedFactor(car: CarRuntime): number {
+    const target = this.findTargetAhead(car);
+    if (!target) return 1;
+
+    const gap = target.progress - car.progress;
+    if (gap <= 0 || gap > 165) return 1;
+    if (car.car.gimmick.id === "balancedDraft" && gap > 45) return 1;
+    if (gap < 45) return 0.86;
+    if (gap < 90) return 0.93;
+    return 0.98;
   }
 
   private applyHazards(car: CarRuntime): void {
@@ -371,7 +556,7 @@ export class RaceEngine {
     car.sp = 0;
     car.itemUses += 1;
     const packPosition = this.cars.length <= 1 ? 0 : (car.rank - 1) / (this.cars.length - 1);
-    car.itemCooldown = Math.max(2.3, 4.2 + this.rng.range(0, 1.1) - packPosition * 2.25);
+    car.itemCooldown = Math.max(2.8, 4.6 + this.rng.range(0, 1.2) - packPosition * 1.25);
     car.highlightScore += 1.7;
 
     if (item === "turbo") {
@@ -443,6 +628,12 @@ export class RaceEngine {
     const pool = [...car.car.specialBias];
     if (car.rank === this.cars.length) pool.push("rocket", "turbo", "lineDisrupt", "turbo", "rocket", "turbo");
     if (car.rank > this.cars.length * 0.6) pool.push("rocket", "turbo", "lineDisrupt", "turbo");
+    if (
+      car.rank > this.cars.length * 0.55 &&
+      (car.car.gimmick.id === "bodyBlock" || car.car.gimmick.id === "offroadGuard" || car.car.gimmick.id === "luxuryShield")
+    ) {
+      pool.push("rocket", "turbo", "rocket", "lineDisrupt");
+    }
     if (car.rank === 1) pool.push("banana", "smoke", "shield");
     if (car.isDrifting) pool.push("turbo", "lineDisrupt");
     return this.rng.pick(pool);
@@ -452,6 +643,16 @@ export class RaceEngine {
     return [...this.cars]
       .filter((candidate) => candidate.id !== car.id && !candidate.finished && candidate.progress > car.progress)
       .sort((a, b) => a.progress - b.progress)[0];
+  }
+
+  private findCloseBehind(car: CarRuntime, distance: number): CarRuntime | undefined {
+    return [...this.cars]
+      .filter((candidate) => {
+        if (candidate.id === car.id || candidate.finished) return false;
+        const gap = car.progress - candidate.progress;
+        return gap > 0 && gap < distance;
+      })
+      .sort((a, b) => b.progress - a.progress)[0];
   }
 
   private findLeaderExcept(car: CarRuntime): CarRuntime | undefined {
@@ -490,6 +691,17 @@ export class RaceEngine {
       item,
       message,
       intensity: item === "rocket" || item === "lineDisrupt" ? 1 : 0.85
+    });
+  }
+
+  private pushGimmickEvent(car: CarRuntime, label: string, message: string, targetId?: string): void {
+    this.pushEvent({
+      type: "gimmick",
+      carId: car.id,
+      targetId,
+      label,
+      message,
+      intensity: 0.9
     });
   }
 

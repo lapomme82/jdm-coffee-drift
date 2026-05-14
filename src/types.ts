@@ -18,6 +18,25 @@ export type VehicleBodyType =
   | "tractor"
   | "scooter";
 
+export type VehicleGimmickId =
+  | "balancedDraft"
+  | "evSurge"
+  | "apexLine"
+  | "bodyBlock"
+  | "offroadGuard"
+  | "luxuryShield"
+  | "straightBurst"
+  | "hyperOverheat"
+  | "alleyShortcut"
+  | "farmShortcut"
+  | "courierDash";
+
+export interface VehicleGimmick {
+  id: VehicleGimmickId;
+  name: string;
+  description: string;
+}
+
 export interface CarSpec {
   id: string;
   name: string;
@@ -38,6 +57,7 @@ export interface CarSpec {
   spGain: number;
   weight: number;
   specialBias: ItemType[];
+  gimmick: VehicleGimmick;
 }
 
 export interface PlayerConfig {

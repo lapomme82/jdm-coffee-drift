@@ -1,4 +1,4 @@
-import type { CarSpec } from "../types";
+import type { CarSpec, VehicleGimmick, VehicleGimmickId } from "../types";
 import baeminSprite from "../assets/cars/baemin.png";
 import benchBargainsaleSprite from "../assets/cars/bench-bargainsale.png";
 import chevroletTraxSprite from "../assets/cars/chevrolet-trax.png";
@@ -13,6 +13,64 @@ import rangeRoverDefenseSprite from "../assets/cars/range-rover-defense.png";
 import teslaCybertruckSprite from "../assets/cars/tesla-cybertruck.png";
 import teslaModelYgSprite from "../assets/cars/tesla-model-yg.png";
 import vmw3e0iSprite from "../assets/cars/vmw-3e0i.png";
+
+export const vehicleGimmicks: Record<VehicleGimmickId, VehicleGimmick> = {
+  balancedDraft: {
+    id: "balancedDraft",
+    name: "슬립 드래프트",
+    description: "앞차 뒤에 붙으면 공기 흐름을 타고 SP와 속도를 조금씩 회복합니다."
+  },
+  evSurge: {
+    id: "evSurge",
+    name: "전기 서지",
+    description: "직선이나 추격 상황에서 순간 토크를 폭발시켜 짧은 터보를 얻습니다."
+  },
+  apexLine: {
+    id: "apexLine",
+    name: "에이펙스 라인",
+    description: "헤어핀 드리프트가 안정적이면 코너 탈출 속도와 SP 보상이 커집니다."
+  },
+  bodyBlock: {
+    id: "bodyBlock",
+    name: "바디 블록",
+    description: "뒤차가 너무 가까우면 차폭으로 라인을 막아 추격 리듬을 끊습니다."
+  },
+  offroadGuard: {
+    id: "offroadGuard",
+    name: "오프로드 가드",
+    description: "거친 코너에서 흔들림이 적고 뒤차를 압박하는 방어 기믹을 가집니다."
+  },
+  luxuryShield: {
+    id: "luxuryShield",
+    name: "프리미엄 실드",
+    description: "하위권으로 밀리면 자동 실드와 안정 주행 보정으로 다시 붙습니다."
+  },
+  straightBurst: {
+    id: "straightBurst",
+    name: "직선 사냥",
+    description: "직선 구간에서 터보를 터뜨려 선두권을 벌리지만 코너에서는 이득이 줄어듭니다."
+  },
+  hyperOverheat: {
+    id: "hyperOverheat",
+    name: "오버히트 부스트",
+    description: "강력한 직선 부스트 후 과열로 코너 안정성이 흔들리는 고위험 기믹입니다."
+  },
+  alleyShortcut: {
+    id: "alleyShortcut",
+    name: "샛길 돌파",
+    description: "뒤처진 상태로 헤어핀에 들어가면 좁은 샛길을 타고 진행도를 크게 당깁니다."
+  },
+  farmShortcut: {
+    id: "farmShortcut",
+    name: "논두렁 루트",
+    description: "느리지만 하위권 헤어핀에서 농로 지름길을 타고 한 번에 따라붙습니다."
+  },
+  courierDash: {
+    id: "courierDash",
+    name: "배달 골목질주",
+    description: "하위권에서 골목 라인을 타고 짧은 지름길과 터보를 동시에 얻습니다."
+  }
+};
 
 export const cars: CarSpec[] = [
   {
@@ -30,7 +88,8 @@ export const cars: CarSpec[] = [
     drift: 6,
     spGain: 7,
     weight: 6,
-    specialBias: ["turbo", "shield", "lineDisrupt"]
+    specialBias: ["turbo", "shield", "lineDisrupt"],
+    gimmick: vehicleGimmicks.balancedDraft
   },
   {
     id: "tesla-cybertruck",
@@ -47,7 +106,8 @@ export const cars: CarSpec[] = [
     drift: 4,
     spGain: 6,
     weight: 9,
-    specialBias: ["rocket", "shield", "lineDisrupt"]
+    specialBias: ["rocket", "shield", "lineDisrupt"],
+    gimmick: vehicleGimmicks.bodyBlock
   },
   {
     id: "tesla-model-yg",
@@ -64,7 +124,8 @@ export const cars: CarSpec[] = [
     drift: 5,
     spGain: 7,
     weight: 6,
-    specialBias: ["turbo", "rocket", "shield"]
+    specialBias: ["turbo", "rocket", "shield"],
+    gimmick: vehicleGimmicks.evSurge
   },
   {
     id: "vmw-3e0i",
@@ -81,7 +142,8 @@ export const cars: CarSpec[] = [
     drift: 7,
     spGain: 6,
     weight: 5,
-    specialBias: ["turbo", "lineDisrupt", "smoke"]
+    specialBias: ["turbo", "lineDisrupt", "smoke"],
+    gimmick: vehicleGimmicks.apexLine
   },
   {
     id: "bench-bargainsale",
@@ -98,7 +160,8 @@ export const cars: CarSpec[] = [
     drift: 4,
     spGain: 7,
     weight: 9,
-    specialBias: ["shield", "smoke", "banana"]
+    specialBias: ["shield", "smoke", "banana"],
+    gimmick: vehicleGimmicks.bodyBlock
   },
   {
     id: "range-rover-defense",
@@ -115,7 +178,8 @@ export const cars: CarSpec[] = [
     drift: 5,
     spGain: 7,
     weight: 8,
-    specialBias: ["shield", "smoke", "lineDisrupt"]
+    specialBias: ["shield", "smoke", "lineDisrupt"],
+    gimmick: vehicleGimmicks.offroadGuard
   },
   {
     id: "genesimpson-zv80",
@@ -132,7 +196,8 @@ export const cars: CarSpec[] = [
     drift: 5,
     spGain: 8,
     weight: 8,
-    specialBias: ["turbo", "shield", "lineDisrupt"]
+    specialBias: ["turbo", "shield", "lineDisrupt"],
+    gimmick: vehicleGimmicks.luxuryShield
   },
   {
     id: "link-nautilus",
@@ -149,7 +214,8 @@ export const cars: CarSpec[] = [
     drift: 6,
     spGain: 7,
     weight: 7,
-    specialBias: ["shield", "turbo", "banana"]
+    specialBias: ["shield", "turbo", "banana"],
+    gimmick: vehicleGimmicks.balancedDraft
   },
   {
     id: "porsche-119",
@@ -166,7 +232,8 @@ export const cars: CarSpec[] = [
     drift: 6,
     spGain: 5,
     weight: 5,
-    specialBias: ["rocket", "turbo", "lineDisrupt"]
+    specialBias: ["rocket", "turbo", "lineDisrupt"],
+    gimmick: vehicleGimmicks.straightBurst
   },
   {
     id: "ouya-r8",
@@ -183,7 +250,8 @@ export const cars: CarSpec[] = [
     drift: 5,
     spGain: 5,
     weight: 5,
-    specialBias: ["rocket", "turbo", "smoke"]
+    specialBias: ["rocket", "turbo", "smoke"],
+    gimmick: vehicleGimmicks.straightBurst
   },
   {
     id: "ferrari-f-plus",
@@ -200,7 +268,8 @@ export const cars: CarSpec[] = [
     drift: 6,
     spGain: 5,
     weight: 4,
-    specialBias: ["turbo", "rocket", "lineDisrupt"]
+    specialBias: ["turbo", "rocket", "lineDisrupt"],
+    gimmick: vehicleGimmicks.hyperOverheat
   },
   {
     id: "lee-changju-rickshaw",
@@ -217,7 +286,8 @@ export const cars: CarSpec[] = [
     drift: 9,
     spGain: 10,
     weight: 2,
-    specialBias: ["banana", "smoke", "lineDisrupt"]
+    specialBias: ["banana", "smoke", "lineDisrupt"],
+    gimmick: vehicleGimmicks.alleyShortcut
   },
   {
     id: "country-maibahu",
@@ -234,7 +304,8 @@ export const cars: CarSpec[] = [
     drift: 4,
     spGain: 9,
     weight: 10,
-    specialBias: ["banana", "smoke", "shield"]
+    specialBias: ["banana", "smoke", "shield"],
+    gimmick: vehicleGimmicks.farmShortcut
   },
   {
     id: "baemin",
@@ -251,7 +322,8 @@ export const cars: CarSpec[] = [
     drift: 8,
     spGain: 10,
     weight: 1,
-    specialBias: ["turbo", "banana", "smoke"]
+    specialBias: ["turbo", "banana", "smoke"],
+    gimmick: vehicleGimmicks.courierDash
   }
 ];
 

@@ -497,6 +497,25 @@ h1 {
   line-height: 1.45;
 }
 
+.car-gimmick {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  margin: -4px 0 14px;
+  padding: 8px 10px;
+  border: 1px solid rgba(247, 178, 103, 0.34);
+  border-radius: 6px;
+  background: rgba(247, 178, 103, 0.08);
+  color: rgba(245, 238, 220, 0.78);
+  font-size: 12px;
+  line-height: 1.38;
+}
+
+.car-gimmick strong {
+  color: #f7b267;
+  font-size: 12px;
+}
+
 .car-description {
   min-height: 54px;
   margin: -6px 0 14px;

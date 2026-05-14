@@ -469,7 +469,7 @@ function renderLobbyPlayer(player: RoomPlayer, index: number, editable: boolean,
             ${cars.map((candidate) => `<option value="${candidate.id}" ${candidate.id === car.id ? "selected" : ""}>${candidate.name}</option>`).join("")}
           </select>
         </label>
-      ` : `<p class="car-role">${escapeHtml(car.name)}</p>`}
+      ` : `<p class="car-role">${escapeHtml(car.name)} · ${escapeHtml(car.gimmick.name)}</p>`}
       <p class="ready-badge">${isHost ? "HOST" : "GUEST"} · ${player.ready ? "READY" : "WAIT"}</p>
     </article>
   `;
@@ -676,6 +676,7 @@ function renderPlayerCard(player: PlayerConfig, index: number): string {
         </select>
       </label>
       <p class="car-role">${escapeHtml(car.role)}</p>
+      <p class="car-gimmick"><strong>${escapeHtml(car.gimmick.name)}</strong>${escapeHtml(car.gimmick.description)}</p>
       <p class="car-description">${escapeHtml(car.description)}</p>
       <div class="stat-grid">
         ${renderStat("최고속", car.topSpeed)}

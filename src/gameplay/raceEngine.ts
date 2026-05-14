@@ -476,7 +476,7 @@ export class RaceEngine {
   }
 
   private getCarTopSpeed(car: CarRuntime): number {
-    return 238 + car.car.topSpeed * 7.4 + car.car.accel * 2.3 - car.car.weight * 0.95;
+    return 238 + car.car.topSpeed * 7.4 + car.car.accel * 2.3 - car.car.weight * 0.95 + getUtilityStability(car) * 8.5;
   }
 
   private applyTrafficLights(car: CarRuntime, packPosition: number): number {
@@ -492,10 +492,11 @@ export class RaceEngine {
     }
 
     const distance = distanceAheadOnLap(car.progress, light.progress, this.runtime.totalLength);
+    const utilityStability = getUtilityStability(car);
     car.trafficStopTime = Math.max(car.trafficStopTime, 0.25);
-    if (distance < 34) return 0.02;
-    if (distance < 64) return 0.18;
-    return 0.46;
+    if (distance < 34) return 0.02 + utilityStability * 0.03;
+    if (distance < 64) return 0.18 + utilityStability * 0.08;
+    return 0.46 + utilityStability * 0.09;
   }
 
   private applyNoPassingRules(car: CarRuntime, packPosition: number): number {
@@ -513,7 +514,9 @@ export class RaceEngine {
       return 1.02;
     }
 
-    const followFactor = gap < 48 ? 0.68 : gap < 92 ? 0.8 : 0.9;
+    const utilityStability = getUtilityStability(car);
+    const followFactor =
+      gap < 48 ? 0.68 + utilityStability * 0.1 : gap < 92 ? 0.8 + utilityStability * 0.08 : 0.9 + utilityStability * 0.04;
     car.targetLaneOffset = target.laneOffset + (car.id < target.id ? -1 : 1) * this.track.roadWidth * 0.07;
     return followFactor;
   }
@@ -528,10 +531,11 @@ export class RaceEngine {
     const gapBefore = target.progress - car.previousProgress;
     if (gapBefore <= 0 || gapBefore > NO_PASSING_FOLLOW_DISTANCE) return;
 
-    const minGap = 34 + (car.rank % 3) * 5;
+    const utilityStability = getUtilityStability(car);
+    const minGap = Math.max(24, 34 + (car.rank % 3) * 5 - utilityStability * 9);
     if (car.progress > target.progress - minGap) {
       car.progress = Math.max(car.previousProgress, target.progress - minGap);
-      car.speed = Math.min(car.speed, target.speed * 0.94);
+      car.speed = Math.min(car.speed, target.speed * (0.94 + utilityStability * 0.04));
     }
   }
 
@@ -606,7 +610,7 @@ export class RaceEngine {
 
   private shouldRunRedLight(car: CarRuntime, light: TrafficLightRuntime, lap: number, packPosition: number): boolean {
     if (car.car.ruleClass === "sportsRisk") return false;
-    const probability = 0.58 + packPosition * 0.26 + Math.max(0, 6 - car.car.grip) * 0.025;
+    const probability = 0.58 + packPosition * 0.26 + Math.max(0, 6 - car.car.grip) * 0.025 - getUtilityStability(car) * 0.16;
     return seededChance(`${this.seed}:red:${car.id}:${light.id}:${lap}`, probability);
   }
 
@@ -945,6 +949,14 @@ function distanceAheadOnLap(progress: number, featureProgress: number, lapLength
 
 function seededChance(key: string, probability: number): boolean {
   return new Rng(hashSeed(key)).chance(probability);
+}
+
+function getUtilityStability(car: CarRuntime): number {
+  if (car.car.bodyType === "suv") return 1;
+  if (car.car.id === "link-nautilus") return 0.85;
+  if (car.car.bodyType === "truck") return 0.95;
+  if (car.car.bodyType === "crossover") return 0.5;
+  return 0;
 }
 
 function getViolationCount(violations: TrafficViolationLedger): number {

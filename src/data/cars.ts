@@ -119,7 +119,7 @@ export const cars: CarSpec[] = [
     id: "bench-bargainsale",
     name: "벤치 바겐세일",
     role: "메르세데스-벤츠 G-Class 기반 / 박스형 고중량 SUV",
-    description: "무게와 높은 차체 때문에 코너에서는 손해를 보지만, 막히는 구간에서 속도가 쉽게 죽지 않는 묵직한 SUV입니다.",
+    description: "무게와 높은 차체 때문에 코너에서는 손해를 보지만, 저속 토크와 차체 안정성으로 막히는 구간에서 속도가 쉽게 죽지 않는 묵직한 SUV입니다.",
     sprite: benchBargainsaleSprite,
     bodyType: "suv",
     reference: {
@@ -133,12 +133,12 @@ export const cars: CarSpec[] = [
     ruleClass: "standard",
     raceSpriteWidth: 94,
     colors: { primary: 0x12395f, secondary: 0x07111c, trim: 0xd8dee9 },
-    topSpeed: 6.0,
-    accel: 6.9,
-    grip: 5.5,
-    drift: 3.7,
-    spGain: 5.2,
-    weight: 9.4
+    topSpeed: 6.7,
+    accel: 7.5,
+    grip: 6.8,
+    drift: 4.6,
+    spGain: 6.7,
+    weight: 9.1
   },
   {
     id: "range-rover-defense",
@@ -158,12 +158,12 @@ export const cars: CarSpec[] = [
     ruleClass: "standard",
     raceSpriteWidth: 94,
     colors: { primary: 0xb59f6b, secondary: 0x0f1720, trim: 0x7ee081 },
-    topSpeed: 5.9,
-    accel: 6.5,
-    grip: 6.8,
-    drift: 4.2,
-    spGain: 5.6,
-    weight: 8.6
+    topSpeed: 6.2,
+    accel: 6.8,
+    grip: 7.2,
+    drift: 4.7,
+    spGain: 6.3,
+    weight: 8.5
   },
   {
     id: "genesimpson-zv80",
@@ -183,12 +183,12 @@ export const cars: CarSpec[] = [
     ruleClass: "standard",
     raceSpriteWidth: 94,
     colors: { primary: 0xf5f7fa, secondary: 0x111820, trim: 0xc9a86a },
-    topSpeed: 6.9,
-    accel: 6.8,
-    grip: 6.6,
-    drift: 4.4,
-    spGain: 5.6,
-    weight: 8.5
+    topSpeed: 7.1,
+    accel: 7.0,
+    grip: 7.1,
+    drift: 4.9,
+    spGain: 6.4,
+    weight: 8.4
   },
   {
     id: "link-nautilus",
@@ -208,12 +208,12 @@ export const cars: CarSpec[] = [
     ruleClass: "standard",
     raceSpriteWidth: 94,
     colors: { primary: 0xdce4ee, secondary: 0x111820, trim: 0xa7b2c3 },
-    topSpeed: 5.7,
-    accel: 5.6,
-    grip: 6.3,
-    drift: 4.5,
-    spGain: 6.4,
-    weight: 7.4
+    topSpeed: 6.1,
+    accel: 5.9,
+    grip: 6.8,
+    drift: 5.0,
+    spGain: 7.1,
+    weight: 7.3
   },
   {
     id: "porsche-119",

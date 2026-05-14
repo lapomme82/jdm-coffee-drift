@@ -1,0 +1,21 @@
+{
+  "name": "jdm-coffee-drift",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "smoke:flow": "node scripts/smoke-flow.cjs",
+    "backtest:balance": "node scripts/balance-backtest.cjs"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0",
+    "vite": "^6.0.7"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1",
+    "typescript": "^5.7.2"
+  }
+}

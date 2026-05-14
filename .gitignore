@@ -1,0 +1,11 @@
+node_modules
+dist
+.vite
+.env
+.env.*
+!.env.example
+.vite-dev*.log
+.vite-*.log
+.tmp-balance
+.DS_Store
+*.local

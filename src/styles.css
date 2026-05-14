@@ -360,11 +360,11 @@ h1 {
 }
 
 .lobby-grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .lobby-card {
-  min-height: 292px;
+  min-height: 536px;
 }
 
 .lobby-card.is-ready {
@@ -488,6 +488,20 @@ h1 {
   color: #aeb8c2;
   font-size: 0.85rem;
   font-weight: 800;
+}
+
+.select-label--readonly strong {
+  display: grid;
+  min-height: 42px;
+  align-items: center;
+  border: 2px solid #2a3a43;
+  border-radius: 2px;
+  padding: 0 12px;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 8px),
+    #070b0f;
+  color: var(--pixel-ink);
+  box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.5);
 }
 
 .car-role {
@@ -647,22 +661,22 @@ h1 {
   position: absolute;
   right: 14px;
   bottom: 14px;
-  width: min(246px, calc(100vw - 28px));
+  width: min(369px, calc(100vw - 28px));
   display: grid;
-  gap: 5px;
+  gap: 8px;
 }
 
 .leaderboard,
 .ticker {
-  padding: 4px 5px;
+  padding: 6px 8px;
 }
 
 .leader-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 29px 24px 38px;
-  gap: 4px;
+  grid-template-columns: 27px minmax(0, 1fr) 44px 36px 57px;
+  gap: 6px;
   align-items: center;
-  padding: 1px 0;
+  padding: 2px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 }
 
@@ -672,12 +686,12 @@ h1 {
 
 .leader-row__rank {
   display: grid;
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.1);
-  font-size: 0.56rem;
+  font-size: 0.84rem;
   font-weight: 900;
 }
 
@@ -688,13 +702,13 @@ h1 {
 
 .leader-car {
   position: relative;
-  width: 24px;
-  height: 16px;
+  width: 36px;
+  height: 24px;
 }
 
 .leader-car__body {
   position: absolute;
-  inset: 4px 1px;
+  inset: 6px 2px;
   border: 2px solid #070b0f;
   background:
     linear-gradient(90deg, var(--car-color) 0 28%, #101820 28% 47%, var(--car-color) 47% 100%);
@@ -708,25 +722,25 @@ h1 {
 .leader-car__body::after {
   content: "";
   position: absolute;
-  top: -4px;
-  width: 5px;
-  height: 4px;
+  top: -5px;
+  width: 8px;
+  height: 5px;
   background: #050709;
 }
 
 .leader-car__body::before {
-  left: 3px;
+  left: 4px;
 }
 
 .leader-car__body::after {
-  right: 3px;
+  right: 4px;
 }
 
 .leader-car__tail {
   position: absolute;
-  left: -2px;
-  width: 4px;
-  height: 4px;
+  left: -3px;
+  width: 6px;
+  height: 6px;
   background: #451018;
   opacity: 0.42;
 }
@@ -750,8 +764,8 @@ h1 {
 .leader-row__name {
   display: grid;
   min-width: 0;
-  gap: 1px;
-  font-size: 0.58rem;
+  gap: 2px;
+  font-size: 0.87rem;
   line-height: 1.02;
 }
 
@@ -763,7 +777,7 @@ h1 {
 }
 
 .leader-row__name strong {
-  font-size: 0.58rem;
+  font-size: 0.87rem;
 }
 
 .leader-row__name span {
@@ -773,7 +787,7 @@ h1 {
 .leader-row__name span,
 .leader-row__meta {
   color: #aeb8c2;
-  font-size: 0.46rem;
+  font-size: 0.69rem;
 }
 
 .leader-row__meta {
@@ -785,8 +799,8 @@ h1 {
 
 .sp-strip {
   position: relative;
-  width: 38px;
-  height: 7px;
+  width: 57px;
+  height: 11px;
   overflow: hidden;
   border: 1px solid #030506;
   background:
@@ -810,17 +824,17 @@ h1 {
   display: block;
   padding: 0 2px;
   color: #f5eedc;
-  font-size: 0.35rem;
+  font-size: 0.52rem;
   font-weight: 900;
-  line-height: 6px;
+  line-height: 10px;
   text-align: center;
   text-shadow: 1px 1px 0 #000;
 }
 
 .speed-dial {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 42px;
+  height: 42px;
   border: 2px solid #070b0f;
   border-radius: 50%;
   background:
@@ -835,9 +849,9 @@ h1 {
 .speed-dial i {
   position: absolute;
   left: 50%;
-  bottom: 7px;
-  width: 2px;
-  height: 8px;
+  bottom: 11px;
+  width: 3px;
+  height: 12px;
   background: #ffb45e;
   transform: translateX(-50%) rotate(var(--needle));
   transform-origin: 50% 100%;
@@ -854,16 +868,16 @@ h1 {
 }
 
 .speed-dial strong {
-  bottom: 7px;
+  bottom: 10px;
   color: #f5eedc;
-  font-size: 0.4rem;
+  font-size: 0.6rem;
   line-height: 1;
 }
 
 .speed-dial span {
-  bottom: 2px;
+  bottom: 3px;
   color: #9fb0bd;
-  font-size: 0.29rem;
+  font-size: 0.44rem;
   font-weight: 900;
 }
 

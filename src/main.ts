@@ -143,6 +143,7 @@ function bindGlobalEvents(): void {
     const select = event.target as HTMLSelectElement;
     if (select.dataset.roomCarSelect) {
       void updateLocalRoomPlayer({ carId: select.value, ready: false });
+      if (state.room) renderLobby(state.room, { preserveScroll: true });
       return;
     }
     const index = Number(select.dataset.carSelect);
@@ -469,7 +470,13 @@ function renderLobbyPlayer(player: RoomPlayer, index: number, editable: boolean,
             ${cars.map((candidate) => `<option value="${candidate.id}" ${candidate.id === car.id ? "selected" : ""}>${candidate.name}</option>`).join("")}
           </select>
         </label>
-      ` : `<p class="car-role">${escapeHtml(car.name)} · ${getRuleClassLabel(car.ruleClass)}</p>`}
+      ` : `
+        <div class="select-label select-label--readonly">
+          <span>차량</span>
+          <strong>${escapeHtml(car.name)}</strong>
+        </div>
+      `}
+      ${renderVehicleDetails(car)}
       <p class="ready-badge">${isHost ? "HOST" : "GUEST"} · ${player.ready ? "READY" : "WAIT"}</p>
     </article>
   `;
@@ -675,18 +682,24 @@ function renderPlayerCard(player: PlayerConfig, index: number): string {
           ${cars.map((candidate) => `<option value="${candidate.id}" ${candidate.id === car.id ? "selected" : ""}>${candidate.name}</option>`).join("")}
         </select>
       </label>
-      <p class="car-role">${escapeHtml(car.role)}</p>
-      <p class="car-reference">${renderReferencePerformance(car)}</p>
-      <p class="car-description">${escapeHtml(car.description)}</p>
-      <div class="stat-grid">
-        ${renderStat("최고속", car.topSpeed)}
-        ${renderStat("가속", car.accel)}
-        ${renderStat("그립", car.grip)}
-        ${renderStat("드리프트", car.drift)}
-        ${renderStat("SP", car.spGain)}
-        ${renderStat("중량", car.weight)}
-      </div>
+      ${renderVehicleDetails(car)}
     </article>
+  `;
+}
+
+function renderVehicleDetails(car: ReturnType<typeof getCar>): string {
+  return `
+    <p class="car-role">${escapeHtml(car.role)}</p>
+    <p class="car-reference">${renderReferencePerformance(car)}</p>
+    <p class="car-description">${escapeHtml(car.description)}</p>
+    <div class="stat-grid">
+      ${renderStat("최고속", car.topSpeed)}
+      ${renderStat("가속", car.accel)}
+      ${renderStat("그립", car.grip)}
+      ${renderStat("드리프트", car.drift)}
+      ${renderStat("SP", car.spGain)}
+      ${renderStat("중량", car.weight)}
+    </div>
   `;
 }
 

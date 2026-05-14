@@ -44,6 +44,7 @@ export interface CarRuntime {
   shortcutTime: number;
   shortcutOffset: number;
   shortcutDrive?: ShortcutDriveState;
+  pendingViolations: TrafficViolationLedger;
   wasDrifting: boolean;
   highlightScore: number;
   lastRank: number;
@@ -112,6 +113,11 @@ export interface PoliceTrapRuntime {
   watches: "signal" | "noPassing" | "both";
 }
 
+export interface TrafficViolationLedger {
+  signal: number;
+  noPassing: number;
+}
+
 export interface TrackTrafficPlan {
   noPassingZones: RoadRuleZone[];
   trafficLights: TrafficLightRuntime[];
@@ -134,6 +140,8 @@ const HIGHLIGHTS = [
 const RED_LIGHT_STOP_DISTANCE = 170;
 const NO_PASSING_FOLLOW_DISTANCE = 150;
 const SP_GAIN_MULTIPLIER = 0.2;
+const SIGNAL_POLICE_PENALTY_SECONDS = 3.2;
+const NO_PASSING_POLICE_PENALTY_SECONDS = 4.8;
 
 export class RaceEngine {
   readonly track: TrackSpec;
@@ -196,6 +204,7 @@ export class RaceEngine {
         shortcutTime: 0,
         shortcutOffset: 0,
         shortcutDrive: undefined,
+        pendingViolations: { signal: 0, noPassing: 0 },
         wasDrifting: false,
         highlightScore: 0,
         lastRank: index + 1
@@ -390,10 +399,11 @@ export class RaceEngine {
     car.wasDrifting = car.isDrifting;
 
     const rankPush = 0.99 + packPosition * 0.09;
-    const racePace = this.cars.length <= 2 ? 1.12 : 1.06;
+    const racePace = this.cars.length <= 2 ? 1.4 : 1.34;
     car.progress += car.speed * rankPush * racePace * dt;
     this.tryActivateShortcut(car, packPosition);
     this.enforceNoPassingProgress(car);
+    this.applyPendingPolicePenalty(car);
 
     const laneMergeRate = this.elapsed < 7 ? 0.75 : 0.38;
     car.laneOffset += (car.targetLaneOffset - car.laneOffset) * Math.min(1, dt * laneMergeRate);
@@ -611,16 +621,14 @@ export class RaceEngine {
     if (this.trafficEventKeys.has(key)) return;
     this.trafficEventKeys.add(key);
 
-    const caught = this.tryPolicePenalty(car, light.progress, "signal", "신호위반");
-    if (!caught) {
-      this.pushEvent({
-        type: "traffic",
-        carId: car.id,
-        label: "신호위반",
-        message: `${car.name} 빨간불을 보고도 밀어붙였습니다.`,
-        intensity: 0.55
-      });
-    }
+    this.addTrafficViolation(car, "signal");
+    this.pushEvent({
+      type: "traffic",
+      carId: car.id,
+      label: "신호위반",
+      message: `${car.name} 빨간불을 보고도 밀어붙였습니다. 다음 경찰 단속 대상입니다.`,
+      intensity: 0.55
+    });
   }
 
   private recordNoPassingViolation(car: CarRuntime, zone: RoadRuleZone, target: CarRuntime, packPosition: number): void {
@@ -629,48 +637,56 @@ export class RaceEngine {
     if (this.trafficEventKeys.has(key)) return;
     this.trafficEventKeys.add(key);
 
-    const caught = this.tryPolicePenalty(car, car.progress, "noPassing", "추월금지 위반");
-    if (!caught && packPosition > 0.12) {
+    this.addTrafficViolation(car, "noPassing");
+    if (packPosition > 0.12) {
       car.speed *= 0.94;
       car.turboCooldown = Math.max(car.turboCooldown, 1.8);
-      this.pushEvent({
-        type: "traffic",
-        carId: car.id,
-        targetId: target.id,
-        label: "무리한 추월",
-        message: `${car.name} 추월금지 차로에서 ${target.name} 옆을 찔렀습니다.`,
-        intensity: 0.7
-      });
     }
+    this.pushEvent({
+      type: "traffic",
+      carId: car.id,
+      targetId: target.id,
+      label: "무리한 추월",
+      message: `${car.name} 추월금지 차로에서 ${target.name} 옆을 찔렀습니다. 다음 경찰 단속 대상입니다.`,
+      intensity: 0.7
+    });
   }
 
-  private tryPolicePenalty(car: CarRuntime, progress: number, reason: "signal" | "noPassing", label: string): boolean {
-    if (car.car.ruleClass === "microExempt") return false;
+  private addTrafficViolation(car: CarRuntime, reason: "signal" | "noPassing"): void {
+    if (car.car.ruleClass === "microExempt") return;
+    car.pendingViolations[reason] += 1;
+  }
 
-    const trap = this.findPoliceTrapNear(progress, reason);
-    if (!trap) return false;
+  private applyPendingPolicePenalty(car: CarRuntime): void {
+    if (car.car.ruleClass === "microExempt") return;
 
-    const lap = Math.max(0, Math.floor(Math.max(0, car.progress) / this.runtime.totalLength));
-    const key = `police:${car.id}:${trap.id}:${reason}:${lap}`;
-    if (this.trafficEventKeys.has(key)) return false;
+    const violationCount = getViolationCount(car.pendingViolations);
+    if (violationCount <= 0) return;
+
+    const caught = this.findPoliceTrapOnRoute(car.previousProgress, car.progress);
+    if (!caught) return;
+
+    const key = `police-pending:${car.id}:${caught.trap.id}:${caught.lap}`;
+    if (this.trafficEventKeys.has(key)) return;
     this.trafficEventKeys.add(key);
 
-    const caughtProbability = reason === "signal" ? 0.5 : 0.78;
-    if (!seededChance(`${this.seed}:${key}`, caughtProbability)) return false;
+    const penalty =
+      car.pendingViolations.signal * SIGNAL_POLICE_PENALTY_SECONDS +
+      car.pendingViolations.noPassing * NO_PASSING_POLICE_PENALTY_SECONDS;
+    const detail = formatViolationDetail(car.pendingViolations);
 
-    const penalty = reason === "signal" ? 3.2 : 4.8;
+    car.pendingViolations = { signal: 0, noPassing: 0 };
     car.penaltyTime = Math.max(car.penaltyTime, penalty);
     car.trafficStopTime = 0;
-    car.speed *= 0.34;
-    car.highlightScore += 1.1;
+    car.speed *= Math.max(0.18, 0.38 - violationCount * 0.04);
+    car.highlightScore += 1.2 + violationCount * 0.35;
     this.pushEvent({
       type: "traffic",
       carId: car.id,
       label: "교통단속",
-      message: `${car.name} ${label}으로 교통단속! ${penalty.toFixed(1)}초 정지합니다.`,
-      intensity: 1
+      message: `${car.name} 누적 위반 ${violationCount}회(${detail})로 교통단속! ${penalty.toFixed(1)}초 정지합니다.`,
+      intensity: Math.min(1.35, 0.82 + violationCount * 0.18)
     });
-    return true;
   }
 
   private findTrafficLightAhead(progress: number, maxDistance: number): TrafficLightRuntime | undefined {
@@ -683,11 +699,14 @@ export class RaceEngine {
       .sort((a, b) => a.distance - b.distance)[0]?.light;
   }
 
-  private findPoliceTrapNear(progress: number, reason: "signal" | "noPassing"): PoliceTrapRuntime | undefined {
-    return this.trafficPlan.policeTraps.find((trap) => {
-      if (trap.watches !== "both" && trap.watches !== reason) return false;
-      return circularDistance(progress, trap.progress, this.runtime.totalLength) <= trap.range;
-    });
+  private findPoliceTrapOnRoute(previousProgress: number, nextProgress: number): { trap: PoliceTrapRuntime; lap: number; distance: number } | undefined {
+    return this.trafficPlan.policeTraps
+      .map((trap) => {
+        const crossing = getCrossedFeatureRange(previousProgress, nextProgress, trap.progress, trap.range, this.runtime.totalLength);
+        return crossing ? { trap, ...crossing } : undefined;
+      })
+      .filter((entry): entry is { trap: PoliceTrapRuntime; lap: number; distance: number } => Boolean(entry))
+      .sort((a, b) => a.distance - b.distance)[0];
   }
 
   private getNoPassingZone(progress: number): RoadRuleZone | undefined {
@@ -924,13 +943,42 @@ function distanceAheadOnLap(progress: number, featureProgress: number, lapLength
   return normalizeDistance(featureProgress - value, lapLength);
 }
 
-function circularDistance(a: number, b: number, lapLength: number): number {
-  const delta = Math.abs(normalizeDistance(a, lapLength) - normalizeDistance(b, lapLength));
-  return Math.min(delta, lapLength - delta);
-}
-
 function seededChance(key: string, probability: number): boolean {
   return new Rng(hashSeed(key)).chance(probability);
+}
+
+function getViolationCount(violations: TrafficViolationLedger): number {
+  return violations.signal + violations.noPassing;
+}
+
+function formatViolationDetail(violations: TrafficViolationLedger): string {
+  const parts: string[] = [];
+  if (violations.signal > 0) parts.push(`신호위반 ${violations.signal}`);
+  if (violations.noPassing > 0) parts.push(`추월금지 ${violations.noPassing}`);
+  return parts.join(", ");
+}
+
+function getCrossedFeatureRange(
+  previousProgress: number,
+  nextProgress: number,
+  featureProgress: number,
+  range: number,
+  lapLength: number
+): { lap: number; distance: number } | undefined {
+  const startLap = Math.max(0, Math.floor(Math.max(0, previousProgress - range) / lapLength) - 1);
+  const endLap = Math.floor(Math.max(0, nextProgress + range) / lapLength) + 1;
+
+  for (let lap = startLap; lap <= endLap; lap += 1) {
+    const absoluteProgress = lap * lapLength + featureProgress;
+    if (previousProgress <= absoluteProgress + range && nextProgress >= absoluteProgress - range) {
+      return {
+        lap,
+        distance: Math.max(0, absoluteProgress - previousProgress)
+      };
+    }
+  }
+
+  return undefined;
 }
 
 function getPolylineLength(points: Point[]): number {

@@ -34,7 +34,7 @@ const baseUrl = process.env.SMOKE_URL ?? "http://127.0.0.1:5173/";
     const canvasBox = await page.locator("canvas").boundingBox();
     const trackName = await page.locator("#hud-track").innerText();
 
-    await page.waitForSelector(".results-hero h1", { timeout: 150000 });
+    await page.waitForSelector(".results-hero h1", { timeout: 180000 });
     const resultRows = await page.locator(".result-row").count();
     const buyerText = await page.locator(".results-hero h1").innerText();
 

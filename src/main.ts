@@ -206,14 +206,28 @@ function renderTitle(): void {
 
   uiRoot.innerHTML = `
     <main class="screen screen--title">
-      <section class="title-panel">
-        <p class="eyebrow">AI DRIFT BROADCAST · COFFEE BET</p>
-        <h1>JDM Coffee Drift</h1>
-        <p class="title-copy">팀원 이름과 차량만 고르면 AI가 산길 공도에서 알아서 드리프트 배틀을 펼칩니다. 꼴찌는 커피 담당.</p>
-        <div class="title-actions">
-          <button class="primary-button" data-action="create-room">레이스 개설</button>
-          <button class="secondary-button" data-action="show-room-list">레이스 참가</button>
-          <button class="ghost-button" data-action="start-title">로컬 게임</button>
+      <section class="title-stage">
+        <div class="title-panel">
+          <p class="eyebrow">AI DRIFT BROADCAST · COFFEE BET</p>
+          <h1><span>JDM</span> Coffee Drift</h1>
+          <p class="title-copy">팀원 이름과 차량만 고르면 AI가 산길 공도에서 알아서 드리프트 배틀을 펼칩니다. 꼴찌는 커피 담당.</p>
+          <div class="title-actions">
+            <button class="primary-button" data-action="create-room">레이스 개설</button>
+            <button class="secondary-button" data-action="show-room-list">레이스 참가</button>
+            <button class="ghost-button" data-action="start-title">로컬 게임</button>
+          </div>
+        </div>
+        <div class="title-race-card" aria-hidden="true">
+          <div class="title-race-card__skyline"></div>
+          <div class="title-race-card__track">
+            <i class="title-pixel-car title-pixel-car--lead"></i>
+            <i class="title-pixel-car title-pixel-car--chase"></i>
+            <i class="title-pixel-car title-pixel-car--tail"></i>
+          </div>
+          <div class="title-race-card__hud">
+            <span>LAP 5/5</span>
+            <strong>COFFEE MOMENT</strong>
+          </div>
         </div>
       </section>
       <section class="title-strip" aria-label="race mood">

@@ -42,6 +42,7 @@ export class RaceScene extends Phaser.Scene {
   private trafficGraphics!: Phaser.GameObjects.Graphics;
   private smokeGraphics!: Phaser.GameObjects.Graphics;
   private speedGraphics!: Phaser.GameObjects.Graphics;
+  private carDetailGraphics!: Phaser.GameObjects.Graphics;
   private focusCarId?: string;
   private focusTimer = 0;
   private cameraSwitchCooldown = 0;
@@ -99,6 +100,7 @@ export class RaceScene extends Phaser.Scene {
 
     this.hazardGraphics = this.add.graphics();
     this.smokeGraphics = this.add.graphics();
+    this.carDetailGraphics = this.add.graphics().setDepth(58);
     this.speedGraphics = this.add.graphics().setScrollFactor(0).setDepth(100);
 
     window.dispatchEvent(new CustomEvent("jdm:race-update", { detail: this.getUiSnapshot() }));
@@ -155,6 +157,7 @@ export class RaceScene extends Phaser.Scene {
     this.trackGraphics.fillRect(0, 0, track.world.width, track.world.height);
 
     this.drawPixelGround(rng);
+    this.drawTrackAtmosphere(rng);
     this.drawDecorations(rng);
 
     const points = runtime.samples.map((sample) => sample.point);
@@ -184,6 +187,7 @@ export class RaceScene extends Phaser.Scene {
     }
 
     const start = lookupPath(runtime, 0);
+    this.drawStartGrid(start.point.x, start.point.y, start.normal.x, start.normal.y, track.roadWidth);
     this.trackGraphics.lineStyle(9, 0xffffff, 0.92);
     this.trackGraphics.beginPath();
     this.trackGraphics.moveTo(start.point.x - start.normal.x * track.roadWidth * 0.42, start.point.y - start.normal.y * track.roadWidth * 0.42);
@@ -231,6 +235,66 @@ export class RaceScene extends Phaser.Scene {
     }
   }
 
+  private drawTrackAtmosphere(rng: Rng): void {
+    const { track } = this.engine;
+
+    if (track.category === "city") {
+      for (let y = 0; y < track.world.height; y += 96) {
+        for (let x = 0; x < track.world.width; x += 112) {
+          if (!rng.chance(0.48)) continue;
+          const color = rng.chance(0.55) ? 0x17232d : 0x263746;
+          this.trackGraphics.fillStyle(color, rng.range(0.36, 0.7));
+          this.trackGraphics.fillRect(x, y, rng.pick([48, 64, 96]), rng.pick([32, 48, 72]));
+          this.trackGraphics.fillStyle(rng.chance(0.5) ? track.theme.accent : 0xfff3b0, rng.range(0.36, 0.68));
+          for (let windowX = x + 10; windowX < x + 86; windowX += 18) {
+            if (rng.chance(0.42)) this.trackGraphics.fillRect(windowX, y + rng.pick([8, 22, 36]), 8, 5);
+          }
+        }
+      }
+      return;
+    }
+
+    if (track.category === "coast") {
+      this.trackGraphics.fillStyle(0x5fb3c8, 0.32);
+      this.trackGraphics.fillRect(0, 0, track.world.width, Math.floor(track.world.height * 0.28));
+      for (let index = 0; index < 140; index += 1) {
+        const x = Math.floor(rng.range(0, track.world.width) / 8) * 8;
+        const y = Math.floor(rng.range(0, track.world.height * 0.32) / 8) * 8;
+        this.trackGraphics.fillStyle(rng.chance(0.5) ? 0xe0fbfc : 0x90e0ef, rng.range(0.22, 0.52));
+        this.trackGraphics.fillRect(x, y, rng.pick([18, 26, 36]), 5);
+      }
+      return;
+    }
+
+    if (track.category === "country") {
+      for (let y = 42; y < track.world.height; y += 104) {
+        for (let x = 42; x < track.world.width; x += 128) {
+          if (this.isNearRoad(x, y, track.roadWidth + 80) || !rng.chance(0.7)) continue;
+          const width = rng.pick([72, 96, 120]);
+          const height = rng.pick([48, 64, 80]);
+          this.trackGraphics.fillStyle(rng.chance(0.5) ? 0x9cc66b : 0x6f9d55, 0.42);
+          this.trackGraphics.fillRect(x, y, width, height);
+          this.trackGraphics.lineStyle(2, 0x31572c, 0.35);
+          for (let line = y + 10; line < y + height; line += 14) {
+            this.trackGraphics.beginPath();
+            this.trackGraphics.moveTo(x, line);
+            this.trackGraphics.lineTo(x + width, line);
+            this.trackGraphics.strokePath();
+          }
+        }
+      }
+      return;
+    }
+
+    for (let index = 0; index < 120; index += 1) {
+      const x = Math.floor(rng.range(0, track.world.width) / 12) * 12;
+      const y = Math.floor(rng.range(0, track.world.height) / 12) * 12;
+      if (this.isNearRoad(x, y, track.roadWidth + 70)) continue;
+      this.trackGraphics.fillStyle(rng.chance(0.5) ? 0x5d6b5a : 0x323f37, rng.range(0.26, 0.5));
+      this.trackGraphics.fillRect(x, y, rng.pick([18, 30, 42]), rng.pick([8, 12, 18]));
+    }
+  }
+
   private drawPixelRoadDetails(rng: Rng): void {
     const { track, runtime } = this.engine;
 
@@ -250,6 +314,17 @@ export class RaceScene extends Phaser.Scene {
       }
     }
 
+    for (let distance = 0; distance < runtime.totalLength; distance += 22) {
+      const isNoPassing = this.engine.getRoadRule(distance) === "noPassing";
+      const curbColor = Math.floor(distance / 44) % 2 === 0 ? 0xf8fafc : track.theme.accent;
+      for (const side of [-1, 1]) {
+        const edge = lookupPath(runtime, distance, side * track.roadWidth * 0.52);
+        const size = isNoPassing ? 8 : 10;
+        this.trackGraphics.fillStyle(isNoPassing ? 0xffd166 : curbColor, isNoPassing ? 0.78 : 0.9);
+        this.trackGraphics.fillRect(Math.round(edge.point.x / 4) * 4 - size / 2, Math.round(edge.point.y / 4) * 4 - size / 2, size, size);
+      }
+    }
+
     for (let distance = 0; distance < runtime.totalLength; distance += 180) {
       const railA = lookupPath(runtime, distance, -track.roadWidth * 0.66).point;
       const railB = lookupPath(runtime, distance + 82, -track.roadWidth * 0.66).point;
@@ -262,6 +337,26 @@ export class RaceScene extends Phaser.Scene {
       this.trackGraphics.moveTo(railC.x, railC.y);
       this.trackGraphics.lineTo(railD.x, railD.y);
       this.trackGraphics.strokePath();
+    }
+  }
+
+  private drawStartGrid(x: number, y: number, normalX: number, normalY: number, roadWidth: number): void {
+    const square = 14;
+    const rows = 4;
+    const columns = Math.max(4, Math.floor((roadWidth * 0.72) / square));
+    const tangentX = -normalY;
+    const tangentY = normalX;
+    const startOffset = -((columns - 1) * square) / 2;
+
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        const offset = startOffset + column * square;
+        const rowOffset = (row - 1.5) * square;
+        const px = x + normalX * offset + tangentX * rowOffset;
+        const py = y + normalY * offset + tangentY * rowOffset;
+        this.trackGraphics.fillStyle((row + column) % 2 === 0 ? 0xf8fafc : 0x111820, 0.9);
+        this.trackGraphics.fillRect(Math.round(px / 2) * 2 - square / 2, Math.round(py / 2) * 2 - square / 2, square, square);
+      }
     }
   }
 
@@ -493,6 +588,7 @@ export class RaceScene extends Phaser.Scene {
 
   private updateCarSprites(dt: number): void {
     this.smokeTimer += dt;
+    this.carDetailGraphics.clear();
     for (const car of this.engine.cars) {
       const sprite = this.carSprites.get(car.id);
       const shadow = this.shadowSprites.get(car.id);
@@ -513,12 +609,71 @@ export class RaceScene extends Phaser.Scene {
       nameLabel.setPosition(car.position.x, car.position.y + getNameOffsetY(car.car));
       nameLabel.setDepth(66 + (this.engine.cars.length - car.rank));
       nameLabel.setAlpha(car.finished ? 0.55 : 0.96);
+      this.drawCarPixelDetails(car);
 
       if (car.isDrifting && this.engine.elapsed > 1.5 && this.smokeTimer > 0.06) {
         this.addSmoke(car);
       }
     }
     if (this.smokeTimer > 0.06) this.smokeTimer = 0;
+  }
+
+  private drawCarPixelDetails(car: CarRuntime): void {
+    if (car.finished) return;
+
+    const length = Math.max(26, getRaceSpriteWidth(car.car) * 0.78);
+    const width = car.car.bodyType === "scooter" ? 12 : car.car.bodyType === "rickshaw" ? 18 : 22;
+    const dirX = Math.cos(car.angle);
+    const dirY = Math.sin(car.angle);
+    const normalX = -dirY;
+    const normalY = dirX;
+    const x = car.position.x;
+    const y = car.position.y;
+    const speedGlow = Phaser.Math.Clamp((car.speed - 160) / 180, 0, 1);
+
+    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length + 8, width + 8, 0x050709, 0.42);
+    this.fillOrientedRect(x + normalX * 5, y + normalY * 5, dirX, dirY, normalX, normalY, length * 0.48, 4, lighten(car.car.colors.primary, 0.18), 0.62);
+    this.fillOrientedRect(x - dirX * length * 0.08, y - dirY * length * 0.08, dirX, dirY, normalX, normalY, length * 0.26, width * 0.42, 0x101820, 0.72);
+    this.fillOrientedRect(x + dirX * length * 0.34, y + dirY * length * 0.34, dirX, dirY, normalX, normalY, 9, width * 0.42, car.car.colors.trim, 0.62 + speedGlow * 0.22);
+
+    const tailX = x - dirX * length * 0.46;
+    const tailY = y - dirY * length * 0.46;
+    const lightAlpha = car.isDrifting ? 1 : 0.42 + speedGlow * 0.18;
+    for (const side of [-1, 1]) {
+      this.carDetailGraphics.fillStyle(car.isDrifting ? 0xff2f4f : 0x7a1d24, lightAlpha);
+      this.carDetailGraphics.fillRect(tailX + normalX * side * width * 0.28 - 3, tailY + normalY * side * width * 0.28 - 3, 6, 6);
+    }
+
+    if (car.turboTime > 0) {
+      const flameX = tailX - dirX * 14;
+      const flameY = tailY - dirY * 14;
+      this.fillOrientedRect(flameX, flameY, dirX, dirY, normalX, normalY, 22, 8, 0x4cc9f0, 0.72);
+      this.fillOrientedRect(flameX - dirX * 8, flameY - dirY * 8, dirX, dirY, normalX, normalY, 16, 5, 0xfff3b0, 0.82);
+    }
+  }
+
+  private fillOrientedRect(
+    x: number,
+    y: number,
+    dirX: number,
+    dirY: number,
+    normalX: number,
+    normalY: number,
+    length: number,
+    width: number,
+    color: number,
+    alpha: number
+  ): void {
+    const halfLength = length / 2;
+    const halfWidth = width / 2;
+    this.carDetailGraphics.fillStyle(color, alpha);
+    this.carDetailGraphics.beginPath();
+    this.carDetailGraphics.moveTo(x + dirX * halfLength + normalX * halfWidth, y + dirY * halfLength + normalY * halfWidth);
+    this.carDetailGraphics.lineTo(x + dirX * halfLength - normalX * halfWidth, y + dirY * halfLength - normalY * halfWidth);
+    this.carDetailGraphics.lineTo(x - dirX * halfLength - normalX * halfWidth, y - dirY * halfLength - normalY * halfWidth);
+    this.carDetailGraphics.lineTo(x - dirX * halfLength + normalX * halfWidth, y - dirY * halfLength + normalY * halfWidth);
+    this.carDetailGraphics.closePath();
+    this.carDetailGraphics.fillPath();
   }
 
   private addSmoke(car: CarRuntime): void {

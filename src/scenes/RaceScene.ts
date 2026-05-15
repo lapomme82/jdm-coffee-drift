@@ -26,29 +26,11 @@ const CAR_SHADOW_OFFSET_Y = 6;
 const FIXED_SIMULATION_STEP = 1 / 30;
 const MAX_FRAME_DELTA = 0.25;
 const MAX_SIMULATION_STEPS_PER_FRAME = 10;
-const CAR_SIGNAL_COLORS: Record<string, number> = {
-  "chevrolet-trax": 0xffb45e,
-  "tesla-cybertruck": 0x4cc9f0,
-  "tesla-model-yg": 0x7ee081,
-  "vmw-3e0i": 0x3b82f6,
-  "bench-bargainsale": 0xc084fc,
-  "range-rover-defense": 0xb7e46e,
-  "genesimpson-zv80": 0xffd166,
-  "link-nautilus": 0x2dd4bf,
-  "porsche-119": 0xffca3a,
-  "ouya-r8": 0xa78bfa,
-  "ferrari-f-plus": 0xff2f4f,
-  "lee-changju-rickshaw": 0xf43f5e,
-  "country-maibahu": 0xfb923c,
-  baemin: 0x2dd4bf
-};
 
 export class RaceScene extends Phaser.Scene {
   private setup!: RaceSetup;
   private engine!: RaceEngine;
   private carSprites = new Map<string, Phaser.GameObjects.Image>();
-  private carOutlineSprites = new Map<string, Phaser.GameObjects.Image>();
-  private carGlowSprites = new Map<string, Phaser.GameObjects.Image>();
   private carBaseScales = new Map<string, number>();
   private carFacingDirections = new Map<string, FacingDirection>();
   private shadowSprites = new Map<string, Phaser.GameObjects.Ellipse>();
@@ -60,7 +42,6 @@ export class RaceScene extends Phaser.Scene {
   private trafficGraphics!: Phaser.GameObjects.Graphics;
   private smokeGraphics!: Phaser.GameObjects.Graphics;
   private speedGraphics!: Phaser.GameObjects.Graphics;
-  private carDetailGraphics!: Phaser.GameObjects.Graphics;
   private focusCarId?: string;
   private focusTimer = 0;
   private cameraSwitchCooldown = 0;
@@ -101,8 +82,6 @@ export class RaceScene extends Phaser.Scene {
     this.finalDramaAnnounced = false;
     this.smokeParticles = [];
     this.carSprites.clear();
-    this.carOutlineSprites.clear();
-    this.carGlowSprites.clear();
     this.carBaseScales.clear();
     this.carFacingDirections.clear();
     this.shadowSprites.clear();
@@ -120,7 +99,6 @@ export class RaceScene extends Phaser.Scene {
 
     this.hazardGraphics = this.add.graphics();
     this.smokeGraphics = this.add.graphics();
-    this.carDetailGraphics = this.add.graphics().setDepth(58);
     this.speedGraphics = this.add.graphics().setScrollFactor(0).setDepth(100);
 
     window.dispatchEvent(new CustomEvent("jdm:race-update", { detail: this.getUiSnapshot() }));
@@ -595,8 +573,6 @@ export class RaceScene extends Phaser.Scene {
         )
         .setDepth(7);
       const textureKey = getCarTextureKey(car.car);
-      const glow = this.add.image(car.position.x, car.position.y, textureKey).setDepth(12);
-      const outline = this.add.image(car.position.x, car.position.y, textureKey).setDepth(13);
       const sprite = this.add.image(car.position.x, car.position.y, textureKey).setDepth(15 + car.rank);
       const baseScale = getRaceSpriteWidth(car.car) / Math.max(1, sprite.width);
       const nameLabel = this.add.text(car.position.x, car.position.y + getNameOffsetY(car.car), formatDriverBadge(car.name), {
@@ -608,23 +584,10 @@ export class RaceScene extends Phaser.Scene {
         padding: { x: 5, y: 2 }
       }).setOrigin(0.5).setDepth(64);
       const facingDirection = getFacingDirection(car.angle);
-      glow.setTint(getCarSignalColor(car.car));
-      glow.setAlpha(0.24);
-      glow.setBlendMode(Phaser.BlendModes.ADD);
-      outline.setTint(0x050709);
-      outline.setAlpha(0.82);
-      glow.setFlipX(facingDirection === -1);
-      outline.setFlipX(facingDirection === -1);
       sprite.setFlipX(facingDirection === -1);
-      glow.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
-      outline.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
       sprite.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
-      glow.setScale(baseScale * CAR_INITIAL_SCALE * 1.22);
-      outline.setScale(baseScale * CAR_INITIAL_SCALE * 1.12);
       sprite.setScale(baseScale * CAR_INITIAL_SCALE);
       this.shadowSprites.set(car.id, shadow);
-      this.carGlowSprites.set(car.id, glow);
-      this.carOutlineSprites.set(car.id, outline);
       this.carSprites.set(car.id, sprite);
       this.carBaseScales.set(car.id, baseScale);
       this.carFacingDirections.set(car.id, facingDirection);
@@ -634,104 +597,34 @@ export class RaceScene extends Phaser.Scene {
 
   private updateCarSprites(dt: number): void {
     this.smokeTimer += dt;
-    this.carDetailGraphics.clear();
     for (const car of this.engine.cars) {
       const sprite = this.carSprites.get(car.id);
-      const outline = this.carOutlineSprites.get(car.id);
-      const glow = this.carGlowSprites.get(car.id);
       const shadow = this.shadowSprites.get(car.id);
       const nameLabel = this.nameLabels.get(car.id);
-      if (!sprite || !outline || !glow || !shadow || !nameLabel) continue;
+      if (!sprite || !shadow || !nameLabel) continue;
 
       const baseScale = this.carBaseScales.get(car.id) ?? 1;
       const facingDirection = getFacingDirection(car.angle, this.carFacingDirections.get(car.id) ?? 1);
       this.carFacingDirections.set(car.id, facingDirection);
       sprite.setPosition(car.position.x, car.position.y);
-      outline.setPosition(car.position.x, car.position.y);
-      glow.setPosition(car.position.x, car.position.y);
       sprite.setFlipX(facingDirection === -1);
-      outline.setFlipX(facingDirection === -1);
-      glow.setFlipX(facingDirection === -1);
       sprite.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
-      outline.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
-      glow.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
       const rankDepth = this.engine.cars.length - car.rank;
-      glow.setDepth(13 + rankDepth);
-      outline.setDepth(14 + rankDepth);
       sprite.setDepth(16 + rankDepth);
       sprite.setAlpha(car.finished ? 0.72 : 1);
-      outline.setAlpha(car.finished ? 0.34 : 0.82);
-      glow.setAlpha(car.finished ? 0.08 : car.turboTime > 0 ? 0.42 : 0.2);
       const runningScale = car.turboTime > 0 ? CAR_TURBO_SCALE : CAR_RUNNING_SCALE;
       sprite.setScale(baseScale * runningScale);
-      outline.setScale(baseScale * runningScale * 1.12);
-      glow.setScale(baseScale * runningScale * (car.turboTime > 0 ? 1.32 : 1.22));
       shadow.setPosition(car.position.x + CAR_SHADOW_OFFSET_X, car.position.y + CAR_SHADOW_OFFSET_Y);
-      shadow.setAlpha(car.finished ? 0.12 : 0.28);
+      shadow.setAlpha(car.finished ? 0.1 : 0.34);
       nameLabel.setPosition(car.position.x, car.position.y + getNameOffsetY(car.car));
       nameLabel.setDepth(66 + (this.engine.cars.length - car.rank));
       nameLabel.setAlpha(car.finished ? 0.55 : 0.96);
-      this.drawCarPixelDetails(car);
 
       if (car.isDrifting && this.engine.elapsed > 1.5 && this.smokeTimer > 0.06) {
         this.addSmoke(car);
       }
     }
     if (this.smokeTimer > 0.06) this.smokeTimer = 0;
-  }
-
-  private drawCarPixelDetails(car: CarRuntime): void {
-    if (car.finished) return;
-
-    const length = Math.max(26, getRaceSpriteWidth(car.car) * 0.78);
-    const width = car.car.bodyType === "scooter" ? 12 : car.car.bodyType === "rickshaw" ? 18 : 22;
-    const dirX = Math.cos(car.angle);
-    const dirY = Math.sin(car.angle);
-    const normalX = -dirY;
-    const normalY = dirX;
-    const x = car.position.x;
-    const y = car.position.y;
-    const speedGlow = Phaser.Math.Clamp((car.speed - 160) / 180, 0, 1);
-
-    const tailX = x - dirX * length * 0.46;
-    const tailY = y - dirY * length * 0.46;
-    const lightAlpha = car.isDrifting ? 1 : 0.42 + speedGlow * 0.18;
-    for (const side of [-1, 1]) {
-      this.carDetailGraphics.fillStyle(car.isDrifting ? 0xff2f4f : 0x7a1d24, lightAlpha);
-      this.carDetailGraphics.fillRect(tailX + normalX * side * width * 0.28 - 3, tailY + normalY * side * width * 0.28 - 3, 6, 6);
-    }
-
-    if (car.turboTime > 0) {
-      const flameX = tailX - dirX * 14;
-      const flameY = tailY - dirY * 14;
-      this.fillOrientedRect(flameX, flameY, dirX, dirY, normalX, normalY, 22, 8, 0x4cc9f0, 0.72);
-      this.fillOrientedRect(flameX - dirX * 8, flameY - dirY * 8, dirX, dirY, normalX, normalY, 16, 5, 0xfff3b0, 0.82);
-    }
-  }
-
-  private fillOrientedRect(
-    x: number,
-    y: number,
-    dirX: number,
-    dirY: number,
-    normalX: number,
-    normalY: number,
-    length: number,
-    width: number,
-    color: number,
-    alpha: number,
-    target: Phaser.GameObjects.Graphics = this.carDetailGraphics
-  ): void {
-    const halfLength = length / 2;
-    const halfWidth = width / 2;
-    target.fillStyle(color, alpha);
-    target.beginPath();
-    target.moveTo(x + dirX * halfLength + normalX * halfWidth, y + dirY * halfLength + normalY * halfWidth);
-    target.lineTo(x + dirX * halfLength - normalX * halfWidth, y + dirY * halfLength - normalY * halfWidth);
-    target.lineTo(x - dirX * halfLength - normalX * halfWidth, y - dirY * halfLength - normalY * halfWidth);
-    target.lineTo(x - dirX * halfLength + normalX * halfWidth, y - dirY * halfLength + normalY * halfWidth);
-    target.closePath();
-    target.fillPath();
   }
 
   private addSmoke(car: CarRuntime): void {
@@ -1107,13 +1000,6 @@ function desaturate(color: number, amount: number): number {
   return (Math.round(nextR) << 16) | (Math.round(nextG) << 8) | Math.round(nextB);
 }
 
-function getColorLuma(color: number): number {
-  const r = (color >> 16) & 255;
-  const g = (color >> 8) & 255;
-  const b = color & 255;
-  return r * 0.299 + g * 0.587 + b * 0.114;
-}
-
 function muteBackdropColor(color: number): number {
   return darken(desaturate(color, 0.42), 0.24);
 }
@@ -1132,12 +1018,4 @@ function muteRoadEdgeColor(color: number): number {
 
 function muteAccentColor(color: number): number {
   return darken(desaturate(color, 0.24), 0.12);
-}
-
-function getCarSignalColor(car: CarSpec): number {
-  const mapped = CAR_SIGNAL_COLORS[car.id];
-  if (mapped !== undefined) return mapped;
-  const trim = car.colors.trim;
-  if (getColorLuma(trim) >= 88) return trim;
-  return getColorLuma(car.colors.primary) > 150 ? car.colors.primary : lighten(car.colors.primary, 0.38);
 }

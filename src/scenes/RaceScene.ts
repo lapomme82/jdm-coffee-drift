@@ -26,6 +26,22 @@ const CAR_SHADOW_OFFSET_Y = 6;
 const FIXED_SIMULATION_STEP = 1 / 30;
 const MAX_FRAME_DELTA = 0.25;
 const MAX_SIMULATION_STEPS_PER_FRAME = 10;
+const CAR_SIGNAL_COLORS: Record<string, number> = {
+  "chevrolet-trax": 0xffb45e,
+  "tesla-cybertruck": 0x4cc9f0,
+  "tesla-model-yg": 0x7ee081,
+  "vmw-3e0i": 0x3b82f6,
+  "bench-bargainsale": 0xc084fc,
+  "range-rover-defense": 0xb7e46e,
+  "genesimpson-zv80": 0xffd166,
+  "link-nautilus": 0x2dd4bf,
+  "porsche-119": 0xffca3a,
+  "ouya-r8": 0xa78bfa,
+  "ferrari-f-plus": 0xff2f4f,
+  "lee-changju-rickshaw": 0xf43f5e,
+  "country-maibahu": 0xfb923c,
+  baemin: 0x2dd4bf
+};
 
 export class RaceScene extends Phaser.Scene {
   private setup!: RaceSetup;
@@ -42,6 +58,7 @@ export class RaceScene extends Phaser.Scene {
   private trafficGraphics!: Phaser.GameObjects.Graphics;
   private smokeGraphics!: Phaser.GameObjects.Graphics;
   private speedGraphics!: Phaser.GameObjects.Graphics;
+  private carUnderlayGraphics!: Phaser.GameObjects.Graphics;
   private carDetailGraphics!: Phaser.GameObjects.Graphics;
   private focusCarId?: string;
   private focusTimer = 0;
@@ -100,6 +117,7 @@ export class RaceScene extends Phaser.Scene {
 
     this.hazardGraphics = this.add.graphics();
     this.smokeGraphics = this.add.graphics();
+    this.carUnderlayGraphics = this.add.graphics().setDepth(14);
     this.carDetailGraphics = this.add.graphics().setDepth(58);
     this.speedGraphics = this.add.graphics().setScrollFactor(0).setDepth(100);
 
@@ -153,26 +171,32 @@ export class RaceScene extends Phaser.Scene {
     const rng = new Rng(track.seed);
 
     this.trackGraphics = this.add.graphics();
-    this.trackGraphics.fillStyle(track.theme.ground, 1);
+    const mutedGround = muteBackdropColor(track.theme.ground);
+    const mutedRoad = muteRoadColor(track.theme.road);
+    const mutedRoadEdge = muteRoadEdgeColor(track.theme.roadEdge);
+
+    this.trackGraphics.fillStyle(mutedGround, 1);
     this.trackGraphics.fillRect(0, 0, track.world.width, track.world.height);
 
     this.drawPixelGround(rng);
     this.drawTrackAtmosphere(rng);
     this.drawDecorations(rng);
+    this.trackGraphics.fillStyle(0x041018, track.category === "city" ? 0.1 : 0.18);
+    this.trackGraphics.fillRect(0, 0, track.world.width, track.world.height);
 
     const points = runtime.samples.map((sample) => sample.point);
-    this.trackGraphics.lineStyle(track.roadWidth + 36, track.theme.roadEdge, 1);
+    this.trackGraphics.lineStyle(track.roadWidth + 36, mutedRoadEdge, 1);
     this.strokeClosedPath(points);
-    this.trackGraphics.lineStyle(track.roadWidth + 18, 0x17191d, 0.42);
+    this.trackGraphics.lineStyle(track.roadWidth + 18, 0x080c10, 0.58);
     this.strokeClosedPath(points);
-    this.trackGraphics.lineStyle(track.roadWidth, track.theme.road, 1);
+    this.trackGraphics.lineStyle(track.roadWidth, mutedRoad, 1);
     this.strokeClosedPath(points);
 
     this.drawPixelRoadDetails(rng);
 
     this.drawLaneMarkings();
 
-    this.trackGraphics.lineStyle(8, track.theme.accent, 0.72);
+    this.trackGraphics.lineStyle(8, muteAccentColor(track.theme.accent), 0.52);
     for (const zone of runtime.driftZones) {
       const zoneLength = zone.end >= zone.start ? zone.end - zone.start : runtime.totalLength - zone.start + zone.end;
       for (let offset = 10; offset < zoneLength; offset += 76) {
@@ -206,6 +230,8 @@ export class RaceScene extends Phaser.Scene {
 
   private drawPixelGround(rng: Rng): void {
     const { track } = this.engine;
+    const ground = muteBackdropColor(track.theme.ground);
+    const foliage = muteFoliageColor(track.theme.foliage);
     const tile = 24;
     const columns = Math.ceil(track.world.width / tile);
     const rows = Math.ceil(track.world.height / tile);
@@ -215,12 +241,12 @@ export class RaceScene extends Phaser.Scene {
         if (!rng.chance(0.36)) continue;
         const px = x * tile;
         const py = y * tile;
-        const color = rng.chance(0.52) ? lighten(track.theme.ground, 0.06) : darken(track.theme.ground, 0.08);
-        this.trackGraphics.fillStyle(color, rng.range(0.16, 0.34));
+        const color = rng.chance(0.52) ? lighten(ground, 0.035) : darken(ground, 0.1);
+        this.trackGraphics.fillStyle(color, rng.range(0.1, 0.22));
         this.trackGraphics.fillRect(px, py, tile, tile);
 
         if (rng.chance(0.18)) {
-          this.trackGraphics.fillStyle(track.theme.foliage, rng.range(0.12, 0.24));
+          this.trackGraphics.fillStyle(foliage, rng.range(0.08, 0.17));
           this.trackGraphics.fillRect(px + rng.int(0, 12), py + rng.int(0, 12), rng.pick([4, 8, 12]), rng.pick([4, 8, 12]));
         }
       }
@@ -230,7 +256,7 @@ export class RaceScene extends Phaser.Scene {
       const x = Math.floor(rng.range(0, track.world.width) / 8) * 8;
       const y = Math.floor(rng.range(0, track.world.height) / 8) * 8;
       const size = rng.pick([4, 6, 8]);
-      this.trackGraphics.fillStyle(rng.chance(0.5) ? 0xffffff : 0x000000, rng.range(0.035, 0.08));
+      this.trackGraphics.fillStyle(rng.chance(0.5) ? 0xb7c2c9 : 0x020508, rng.range(0.022, 0.055));
       this.trackGraphics.fillRect(x, y, size, size);
     }
   }
@@ -242,10 +268,10 @@ export class RaceScene extends Phaser.Scene {
       for (let y = 0; y < track.world.height; y += 96) {
         for (let x = 0; x < track.world.width; x += 112) {
           if (!rng.chance(0.48)) continue;
-          const color = rng.chance(0.55) ? 0x17232d : 0x263746;
-          this.trackGraphics.fillStyle(color, rng.range(0.36, 0.7));
+          const color = rng.chance(0.55) ? 0x111a22 : 0x1b2730;
+          this.trackGraphics.fillStyle(color, rng.range(0.34, 0.62));
           this.trackGraphics.fillRect(x, y, rng.pick([48, 64, 96]), rng.pick([32, 48, 72]));
-          this.trackGraphics.fillStyle(rng.chance(0.5) ? track.theme.accent : 0xfff3b0, rng.range(0.36, 0.68));
+          this.trackGraphics.fillStyle(rng.chance(0.5) ? muteAccentColor(track.theme.accent) : 0xd7bc74, rng.range(0.24, 0.46));
           for (let windowX = x + 10; windowX < x + 86; windowX += 18) {
             if (rng.chance(0.42)) this.trackGraphics.fillRect(windowX, y + rng.pick([8, 22, 36]), 8, 5);
           }
@@ -255,12 +281,12 @@ export class RaceScene extends Phaser.Scene {
     }
 
     if (track.category === "coast") {
-      this.trackGraphics.fillStyle(0x5fb3c8, 0.32);
+      this.trackGraphics.fillStyle(0x376f80, 0.24);
       this.trackGraphics.fillRect(0, 0, track.world.width, Math.floor(track.world.height * 0.28));
       for (let index = 0; index < 140; index += 1) {
         const x = Math.floor(rng.range(0, track.world.width) / 8) * 8;
         const y = Math.floor(rng.range(0, track.world.height * 0.32) / 8) * 8;
-        this.trackGraphics.fillStyle(rng.chance(0.5) ? 0xe0fbfc : 0x90e0ef, rng.range(0.22, 0.52));
+        this.trackGraphics.fillStyle(rng.chance(0.5) ? 0x9ccbd0 : 0x5f9dad, rng.range(0.16, 0.34));
         this.trackGraphics.fillRect(x, y, rng.pick([18, 26, 36]), 5);
       }
       return;
@@ -272,9 +298,9 @@ export class RaceScene extends Phaser.Scene {
           if (this.isNearRoad(x, y, track.roadWidth + 80) || !rng.chance(0.7)) continue;
           const width = rng.pick([72, 96, 120]);
           const height = rng.pick([48, 64, 80]);
-          this.trackGraphics.fillStyle(rng.chance(0.5) ? 0x9cc66b : 0x6f9d55, 0.42);
+          this.trackGraphics.fillStyle(rng.chance(0.5) ? 0x627a4a : 0x4d633f, 0.34);
           this.trackGraphics.fillRect(x, y, width, height);
-          this.trackGraphics.lineStyle(2, 0x31572c, 0.35);
+          this.trackGraphics.lineStyle(2, 0x223923, 0.3);
           for (let line = y + 10; line < y + height; line += 14) {
             this.trackGraphics.beginPath();
             this.trackGraphics.moveTo(x, line);
@@ -290,25 +316,27 @@ export class RaceScene extends Phaser.Scene {
       const x = Math.floor(rng.range(0, track.world.width) / 12) * 12;
       const y = Math.floor(rng.range(0, track.world.height) / 12) * 12;
       if (this.isNearRoad(x, y, track.roadWidth + 70)) continue;
-      this.trackGraphics.fillStyle(rng.chance(0.5) ? 0x5d6b5a : 0x323f37, rng.range(0.26, 0.5));
+      this.trackGraphics.fillStyle(rng.chance(0.5) ? 0x3f4b42 : 0x26312b, rng.range(0.2, 0.38));
       this.trackGraphics.fillRect(x, y, rng.pick([18, 30, 42]), rng.pick([8, 12, 18]));
     }
   }
 
   private drawPixelRoadDetails(rng: Rng): void {
     const { track, runtime } = this.engine;
+    const mutedRoadEdge = muteRoadEdgeColor(track.theme.roadEdge);
+    const mutedAccent = muteAccentColor(track.theme.accent);
 
     for (let distance = 0; distance < runtime.totalLength; distance += 34) {
       if (rng.chance(0.62)) {
         const point = lookupPath(runtime, distance, rng.range(-track.roadWidth * 0.36, track.roadWidth * 0.36)).point;
-        this.trackGraphics.fillStyle(rng.chance(0.55) ? 0x202329 : 0x4b515b, rng.range(0.12, 0.26));
+        this.trackGraphics.fillStyle(rng.chance(0.55) ? 0x171b20 : 0x333a42, rng.range(0.1, 0.2));
         this.trackGraphics.fillRect(Math.round(point.x / 4) * 4, Math.round(point.y / 4) * 4, rng.pick([4, 8, 12]), rng.pick([4, 8]));
       }
 
       if (rng.chance(0.86)) {
         const left = lookupPath(runtime, distance, -track.roadWidth * 0.55).point;
         const right = lookupPath(runtime, distance, track.roadWidth * 0.55).point;
-        this.trackGraphics.fillStyle(track.theme.roadEdge, 0.85);
+        this.trackGraphics.fillStyle(mutedRoadEdge, 0.74);
         this.trackGraphics.fillRect(Math.round(left.x / 6) * 6 - 5, Math.round(left.y / 6) * 6 - 5, 10, 10);
         this.trackGraphics.fillRect(Math.round(right.x / 6) * 6 - 5, Math.round(right.y / 6) * 6 - 5, 10, 10);
       }
@@ -316,11 +344,11 @@ export class RaceScene extends Phaser.Scene {
 
     for (let distance = 0; distance < runtime.totalLength; distance += 22) {
       const isNoPassing = this.engine.getRoadRule(distance) === "noPassing";
-      const curbColor = Math.floor(distance / 44) % 2 === 0 ? 0xf8fafc : track.theme.accent;
+      const curbColor = Math.floor(distance / 44) % 2 === 0 ? 0xdce5ea : mutedAccent;
       for (const side of [-1, 1]) {
         const edge = lookupPath(runtime, distance, side * track.roadWidth * 0.52);
         const size = isNoPassing ? 8 : 10;
-        this.trackGraphics.fillStyle(isNoPassing ? 0xffd166 : curbColor, isNoPassing ? 0.78 : 0.9);
+        this.trackGraphics.fillStyle(isNoPassing ? 0xd9a93f : curbColor, isNoPassing ? 0.58 : 0.72);
         this.trackGraphics.fillRect(Math.round(edge.point.x / 4) * 4 - size / 2, Math.round(edge.point.y / 4) * 4 - size / 2, size, size);
       }
     }
@@ -330,7 +358,7 @@ export class RaceScene extends Phaser.Scene {
       const railB = lookupPath(runtime, distance + 82, -track.roadWidth * 0.66).point;
       const railC = lookupPath(runtime, distance, track.roadWidth * 0.66).point;
       const railD = lookupPath(runtime, distance + 82, track.roadWidth * 0.66).point;
-      this.trackGraphics.lineStyle(6, darken(track.theme.roadEdge, 0.22), 0.72);
+      this.trackGraphics.lineStyle(6, darken(mutedRoadEdge, 0.3), 0.62);
       this.trackGraphics.beginPath();
       this.trackGraphics.moveTo(railA.x, railA.y);
       this.trackGraphics.lineTo(railB.x, railB.y);
@@ -588,6 +616,7 @@ export class RaceScene extends Phaser.Scene {
 
   private updateCarSprites(dt: number): void {
     this.smokeTimer += dt;
+    this.carUnderlayGraphics.clear();
     this.carDetailGraphics.clear();
     for (const car of this.engine.cars) {
       const sprite = this.carSprites.get(car.id);
@@ -630,11 +659,19 @@ export class RaceScene extends Phaser.Scene {
     const x = car.position.x;
     const y = car.position.y;
     const speedGlow = Phaser.Math.Clamp((car.speed - 160) / 180, 0, 1);
+    const signalColor = getCarSignalColor(car.car);
+    const highlightColor = lighten(signalColor, 0.24);
 
-    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length + 8, width + 8, 0x050709, 0.42);
-    this.fillOrientedRect(x + normalX * 5, y + normalY * 5, dirX, dirY, normalX, normalY, length * 0.48, 4, lighten(car.car.colors.primary, 0.18), 0.62);
+    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length + 20, width + 20, 0x020508, 0.68, this.carUnderlayGraphics);
+    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length + 14, width + 14, signalColor, 0.5 + speedGlow * 0.18, this.carUnderlayGraphics);
+    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length + 8, width + 8, 0xf8fafc, 0.14, this.carUnderlayGraphics);
+    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length * 0.74, Math.max(4, width * 0.18), signalColor, 0.86);
+    this.fillOrientedRect(x + normalX * width * 0.45, y + normalY * width * 0.45, dirX, dirY, normalX, normalY, length * 0.82, 3, highlightColor, 0.92);
+    this.fillOrientedRect(x - normalX * width * 0.45, y - normalY * width * 0.45, dirX, dirY, normalX, normalY, length * 0.82, 3, highlightColor, 0.92);
+    this.fillOrientedRect(x + normalX * 5, y + normalY * 5, dirX, dirY, normalX, normalY, length * 0.48, 4, highlightColor, 0.86);
+    this.fillOrientedRect(x - normalX * 6, y - normalY * 6, dirX, dirY, normalX, normalY, length * 0.42, 3, 0xf8fafc, 0.36);
     this.fillOrientedRect(x - dirX * length * 0.08, y - dirY * length * 0.08, dirX, dirY, normalX, normalY, length * 0.26, width * 0.42, 0x101820, 0.72);
-    this.fillOrientedRect(x + dirX * length * 0.34, y + dirY * length * 0.34, dirX, dirY, normalX, normalY, 9, width * 0.42, car.car.colors.trim, 0.62 + speedGlow * 0.22);
+    this.fillOrientedRect(x + dirX * length * 0.34, y + dirY * length * 0.34, dirX, dirY, normalX, normalY, 9, width * 0.42, highlightColor, 0.78 + speedGlow * 0.18);
 
     const tailX = x - dirX * length * 0.46;
     const tailY = y - dirY * length * 0.46;
@@ -662,18 +699,19 @@ export class RaceScene extends Phaser.Scene {
     length: number,
     width: number,
     color: number,
-    alpha: number
+    alpha: number,
+    target: Phaser.GameObjects.Graphics = this.carDetailGraphics
   ): void {
     const halfLength = length / 2;
     const halfWidth = width / 2;
-    this.carDetailGraphics.fillStyle(color, alpha);
-    this.carDetailGraphics.beginPath();
-    this.carDetailGraphics.moveTo(x + dirX * halfLength + normalX * halfWidth, y + dirY * halfLength + normalY * halfWidth);
-    this.carDetailGraphics.lineTo(x + dirX * halfLength - normalX * halfWidth, y + dirY * halfLength - normalY * halfWidth);
-    this.carDetailGraphics.lineTo(x - dirX * halfLength - normalX * halfWidth, y - dirY * halfLength - normalY * halfWidth);
-    this.carDetailGraphics.lineTo(x - dirX * halfLength + normalX * halfWidth, y - dirY * halfLength + normalY * halfWidth);
-    this.carDetailGraphics.closePath();
-    this.carDetailGraphics.fillPath();
+    target.fillStyle(color, alpha);
+    target.beginPath();
+    target.moveTo(x + dirX * halfLength + normalX * halfWidth, y + dirY * halfLength + normalY * halfWidth);
+    target.lineTo(x + dirX * halfLength - normalX * halfWidth, y + dirY * halfLength - normalY * halfWidth);
+    target.lineTo(x - dirX * halfLength - normalX * halfWidth, y - dirY * halfLength - normalY * halfWidth);
+    target.lineTo(x - dirX * halfLength + normalX * halfWidth, y - dirY * halfLength + normalY * halfWidth);
+    target.closePath();
+    target.fillPath();
   }
 
   private addSmoke(car: CarRuntime): void {
@@ -1035,4 +1073,51 @@ function darken(color: number, amount: number): number {
   const g = ((color >> 8) & 255) * factor;
   const b = (color & 255) * factor;
   return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
+}
+
+function desaturate(color: number, amount: number): number {
+  const r = (color >> 16) & 255;
+  const g = (color >> 8) & 255;
+  const b = color & 255;
+  const gray = r * 0.299 + g * 0.587 + b * 0.114;
+  const mix = Phaser.Math.Clamp(amount, 0, 1);
+  const nextR = r + (gray - r) * mix;
+  const nextG = g + (gray - g) * mix;
+  const nextB = b + (gray - b) * mix;
+  return (Math.round(nextR) << 16) | (Math.round(nextG) << 8) | Math.round(nextB);
+}
+
+function getColorLuma(color: number): number {
+  const r = (color >> 16) & 255;
+  const g = (color >> 8) & 255;
+  const b = color & 255;
+  return r * 0.299 + g * 0.587 + b * 0.114;
+}
+
+function muteBackdropColor(color: number): number {
+  return darken(desaturate(color, 0.42), 0.24);
+}
+
+function muteFoliageColor(color: number): number {
+  return darken(desaturate(color, 0.5), 0.28);
+}
+
+function muteRoadColor(color: number): number {
+  return darken(desaturate(color, 0.36), 0.16);
+}
+
+function muteRoadEdgeColor(color: number): number {
+  return darken(desaturate(color, 0.54), 0.18);
+}
+
+function muteAccentColor(color: number): number {
+  return darken(desaturate(color, 0.24), 0.12);
+}
+
+function getCarSignalColor(car: CarSpec): number {
+  const mapped = CAR_SIGNAL_COLORS[car.id];
+  if (mapped !== undefined) return mapped;
+  const trim = car.colors.trim;
+  if (getColorLuma(trim) >= 88) return trim;
+  return getColorLuma(car.colors.primary) > 150 ? car.colors.primary : lighten(car.colors.primary, 0.38);
 }

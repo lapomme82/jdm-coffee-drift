@@ -47,6 +47,8 @@ export class RaceScene extends Phaser.Scene {
   private setup!: RaceSetup;
   private engine!: RaceEngine;
   private carSprites = new Map<string, Phaser.GameObjects.Image>();
+  private carOutlineSprites = new Map<string, Phaser.GameObjects.Image>();
+  private carGlowSprites = new Map<string, Phaser.GameObjects.Image>();
   private carBaseScales = new Map<string, number>();
   private carFacingDirections = new Map<string, FacingDirection>();
   private shadowSprites = new Map<string, Phaser.GameObjects.Ellipse>();
@@ -58,7 +60,6 @@ export class RaceScene extends Phaser.Scene {
   private trafficGraphics!: Phaser.GameObjects.Graphics;
   private smokeGraphics!: Phaser.GameObjects.Graphics;
   private speedGraphics!: Phaser.GameObjects.Graphics;
-  private carUnderlayGraphics!: Phaser.GameObjects.Graphics;
   private carDetailGraphics!: Phaser.GameObjects.Graphics;
   private focusCarId?: string;
   private focusTimer = 0;
@@ -100,6 +101,8 @@ export class RaceScene extends Phaser.Scene {
     this.finalDramaAnnounced = false;
     this.smokeParticles = [];
     this.carSprites.clear();
+    this.carOutlineSprites.clear();
+    this.carGlowSprites.clear();
     this.carBaseScales.clear();
     this.carFacingDirections.clear();
     this.shadowSprites.clear();
@@ -117,7 +120,6 @@ export class RaceScene extends Phaser.Scene {
 
     this.hazardGraphics = this.add.graphics();
     this.smokeGraphics = this.add.graphics();
-    this.carUnderlayGraphics = this.add.graphics().setDepth(14);
     this.carDetailGraphics = this.add.graphics().setDepth(58);
     this.speedGraphics = this.add.graphics().setScrollFactor(0).setDepth(100);
 
@@ -592,7 +594,10 @@ export class RaceScene extends Phaser.Scene {
           0.28
         )
         .setDepth(7);
-      const sprite = this.add.image(car.position.x, car.position.y, getCarTextureKey(car.car)).setDepth(10 + car.rank);
+      const textureKey = getCarTextureKey(car.car);
+      const glow = this.add.image(car.position.x, car.position.y, textureKey).setDepth(12);
+      const outline = this.add.image(car.position.x, car.position.y, textureKey).setDepth(13);
+      const sprite = this.add.image(car.position.x, car.position.y, textureKey).setDepth(15 + car.rank);
       const baseScale = getRaceSpriteWidth(car.car) / Math.max(1, sprite.width);
       const nameLabel = this.add.text(car.position.x, car.position.y + getNameOffsetY(car.car), formatDriverBadge(car.name), {
         fontFamily: "Arial, sans-serif",
@@ -603,10 +608,23 @@ export class RaceScene extends Phaser.Scene {
         padding: { x: 5, y: 2 }
       }).setOrigin(0.5).setDepth(64);
       const facingDirection = getFacingDirection(car.angle);
+      glow.setTint(getCarSignalColor(car.car));
+      glow.setAlpha(0.24);
+      glow.setBlendMode(Phaser.BlendModes.ADD);
+      outline.setTint(0x050709);
+      outline.setAlpha(0.82);
+      glow.setFlipX(facingDirection === -1);
+      outline.setFlipX(facingDirection === -1);
       sprite.setFlipX(facingDirection === -1);
+      glow.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
+      outline.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
       sprite.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
+      glow.setScale(baseScale * CAR_INITIAL_SCALE * 1.22);
+      outline.setScale(baseScale * CAR_INITIAL_SCALE * 1.12);
       sprite.setScale(baseScale * CAR_INITIAL_SCALE);
       this.shadowSprites.set(car.id, shadow);
+      this.carGlowSprites.set(car.id, glow);
+      this.carOutlineSprites.set(car.id, outline);
       this.carSprites.set(car.id, sprite);
       this.carBaseScales.set(car.id, baseScale);
       this.carFacingDirections.set(car.id, facingDirection);
@@ -616,23 +634,38 @@ export class RaceScene extends Phaser.Scene {
 
   private updateCarSprites(dt: number): void {
     this.smokeTimer += dt;
-    this.carUnderlayGraphics.clear();
     this.carDetailGraphics.clear();
     for (const car of this.engine.cars) {
       const sprite = this.carSprites.get(car.id);
+      const outline = this.carOutlineSprites.get(car.id);
+      const glow = this.carGlowSprites.get(car.id);
       const shadow = this.shadowSprites.get(car.id);
       const nameLabel = this.nameLabels.get(car.id);
-      if (!sprite || !shadow || !nameLabel) continue;
+      if (!sprite || !outline || !glow || !shadow || !nameLabel) continue;
 
       const baseScale = this.carBaseScales.get(car.id) ?? 1;
       const facingDirection = getFacingDirection(car.angle, this.carFacingDirections.get(car.id) ?? 1);
       this.carFacingDirections.set(car.id, facingDirection);
       sprite.setPosition(car.position.x, car.position.y);
+      outline.setPosition(car.position.x, car.position.y);
+      glow.setPosition(car.position.x, car.position.y);
       sprite.setFlipX(facingDirection === -1);
+      outline.setFlipX(facingDirection === -1);
+      glow.setFlipX(facingDirection === -1);
       sprite.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
-      sprite.setDepth(15 + (this.engine.cars.length - car.rank));
+      outline.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
+      glow.setRotation(getSideViewTilt(car.visualAngle, facingDirection));
+      const rankDepth = this.engine.cars.length - car.rank;
+      glow.setDepth(13 + rankDepth);
+      outline.setDepth(14 + rankDepth);
+      sprite.setDepth(16 + rankDepth);
       sprite.setAlpha(car.finished ? 0.72 : 1);
-      sprite.setScale(baseScale * (car.turboTime > 0 ? CAR_TURBO_SCALE : CAR_RUNNING_SCALE));
+      outline.setAlpha(car.finished ? 0.34 : 0.82);
+      glow.setAlpha(car.finished ? 0.08 : car.turboTime > 0 ? 0.42 : 0.2);
+      const runningScale = car.turboTime > 0 ? CAR_TURBO_SCALE : CAR_RUNNING_SCALE;
+      sprite.setScale(baseScale * runningScale);
+      outline.setScale(baseScale * runningScale * 1.12);
+      glow.setScale(baseScale * runningScale * (car.turboTime > 0 ? 1.32 : 1.22));
       shadow.setPosition(car.position.x + CAR_SHADOW_OFFSET_X, car.position.y + CAR_SHADOW_OFFSET_Y);
       shadow.setAlpha(car.finished ? 0.12 : 0.28);
       nameLabel.setPosition(car.position.x, car.position.y + getNameOffsetY(car.car));
@@ -659,19 +692,6 @@ export class RaceScene extends Phaser.Scene {
     const x = car.position.x;
     const y = car.position.y;
     const speedGlow = Phaser.Math.Clamp((car.speed - 160) / 180, 0, 1);
-    const signalColor = getCarSignalColor(car.car);
-    const highlightColor = lighten(signalColor, 0.24);
-
-    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length + 20, width + 20, 0x020508, 0.68, this.carUnderlayGraphics);
-    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length + 14, width + 14, signalColor, 0.5 + speedGlow * 0.18, this.carUnderlayGraphics);
-    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length + 8, width + 8, 0xf8fafc, 0.14, this.carUnderlayGraphics);
-    this.fillOrientedRect(x, y, dirX, dirY, normalX, normalY, length * 0.74, Math.max(4, width * 0.18), signalColor, 0.86);
-    this.fillOrientedRect(x + normalX * width * 0.45, y + normalY * width * 0.45, dirX, dirY, normalX, normalY, length * 0.82, 3, highlightColor, 0.92);
-    this.fillOrientedRect(x - normalX * width * 0.45, y - normalY * width * 0.45, dirX, dirY, normalX, normalY, length * 0.82, 3, highlightColor, 0.92);
-    this.fillOrientedRect(x + normalX * 5, y + normalY * 5, dirX, dirY, normalX, normalY, length * 0.48, 4, highlightColor, 0.86);
-    this.fillOrientedRect(x - normalX * 6, y - normalY * 6, dirX, dirY, normalX, normalY, length * 0.42, 3, 0xf8fafc, 0.36);
-    this.fillOrientedRect(x - dirX * length * 0.08, y - dirY * length * 0.08, dirX, dirY, normalX, normalY, length * 0.26, width * 0.42, 0x101820, 0.72);
-    this.fillOrientedRect(x + dirX * length * 0.34, y + dirY * length * 0.34, dirX, dirY, normalX, normalY, 9, width * 0.42, highlightColor, 0.78 + speedGlow * 0.18);
 
     const tailX = x - dirX * length * 0.46;
     const tailY = y - dirY * length * 0.46;

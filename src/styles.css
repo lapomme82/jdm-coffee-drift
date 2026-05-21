@@ -1509,6 +1509,214 @@ h1,
     #201b12;
 }
 
+.screen--map-tool {
+  gap: 18px;
+  overflow: auto;
+  background:
+    linear-gradient(180deg, rgba(8, 13, 18, 0.96), rgba(8, 13, 18, 1)),
+    repeating-linear-gradient(90deg, rgba(76, 201, 240, 0.06) 0 2px, transparent 2px 32px);
+}
+
+.map-tool-hint {
+  max-width: 760px;
+  margin: 8px 0 0;
+  color: #c8d1db;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.map-tool-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
+  gap: 18px;
+  width: min(1500px, calc(100vw - 36px));
+  margin: 0 auto 28px;
+}
+
+.map-editor-panel,
+.map-control-panel {
+  border: 2px solid #2a3a43;
+  border-radius: 2px;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 8px),
+    rgba(9, 13, 18, 0.88);
+  box-shadow:
+    inset 3px 3px 0 rgba(255, 255, 255, 0.06),
+    4px 4px 0 rgba(0, 0, 0, 0.55);
+}
+
+.map-editor-panel {
+  padding: 14px;
+}
+
+.map-control-panel {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.map-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  border: 2px solid #070b0f;
+  background: #142018;
+  cursor: crosshair;
+  image-rendering: pixelated;
+}
+
+.map-canvas__ground {
+  fill: #203426;
+}
+
+.map-canvas__edge {
+  fill: none;
+  stroke: #9ca3af;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-canvas__road {
+  fill: none;
+  stroke: #33383f;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-canvas__line {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: 12px;
+  stroke-dasharray: 42 36;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-canvas__drift {
+  fill: rgba(255, 180, 94, 0.22);
+  stroke: #ffb45e;
+  stroke-width: 8px;
+}
+
+.map-canvas__point {
+  cursor: pointer;
+}
+
+.map-canvas__point circle {
+  fill: #f5eedc;
+  stroke: #070b0f;
+  stroke-width: 8px;
+}
+
+.map-canvas__point text {
+  fill: #070b0f;
+  font-size: 24px;
+  font-weight: 900;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.map-canvas__point.is-selected circle {
+  fill: #4cc9f0;
+}
+
+.map-canvas__point.is-drift circle {
+  stroke: #ffb45e;
+}
+
+.map-tool-notice {
+  margin: 12px 0 0;
+  color: var(--pixel-hot);
+  font-weight: 900;
+}
+
+.map-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.map-control-panel label,
+.map-selected-point label,
+.map-export-label,
+.map-description-label {
+  display: grid;
+  gap: 6px;
+  color: #aeb8c2;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.map-control-panel input,
+.map-control-panel select,
+.map-control-panel textarea {
+  width: 100%;
+  min-height: 42px;
+  border: 2px solid #2a3a43;
+  border-radius: 2px;
+  padding: 8px 10px;
+  background: #06090d;
+  color: #f5eedc;
+  font: inherit;
+  text-transform: none;
+}
+
+.map-description-label textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.map-selected-point {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 2px solid #20313b;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.map-selected-point strong {
+  grid-column: 1 / -1;
+  color: #f5eedc;
+}
+
+.map-point-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.map-point-list button {
+  min-height: 34px;
+  border: 1px solid #2a3a43;
+  border-radius: 2px;
+  background: #111922;
+  color: #d8dee4;
+  font-weight: 900;
+  text-align: left;
+}
+
+.map-point-list button.is-selected {
+  border-color: #4cc9f0;
+  color: #4cc9f0;
+}
+
+.map-tool-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.map-export-label textarea {
+  min-height: 190px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  resize: vertical;
+}
+
 @media (max-width: 760px) {
   h1 {
     font-size: 3.2rem;
@@ -1590,6 +1798,18 @@ h1,
   .result-row dl {
     grid-column: 1 / -1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .map-tool-layout {
+    grid-template-columns: 1fr;
+    width: min(100%, calc(100vw - 24px));
+  }
+
+  .map-control-grid,
+  .map-selected-point,
+  .map-point-list,
+  .map-tool-actions {
+    grid-template-columns: 1fr;
   }
 }
 

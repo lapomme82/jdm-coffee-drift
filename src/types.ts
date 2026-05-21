@@ -90,6 +90,7 @@ export interface RaceSetup {
   players: PlayerConfig[];
   trackId: string;
   seed: number;
+  customTrack?: TrackSpec;
 }
 
 export interface LeaderboardEntry {

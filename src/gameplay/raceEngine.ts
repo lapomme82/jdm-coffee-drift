@@ -162,7 +162,7 @@ export class RaceEngine {
   private rng: Rng;
 
   constructor(setup: RaceSetup) {
-    this.track = getTrack(setup.trackId);
+    this.track = setup.customTrack ?? getTrack(setup.trackId);
     this.runtime = buildTrackRuntime(this.track);
     this.maxProgress = this.runtime.totalLength * this.track.laps;
     this.seed = setup.seed ^ this.track.seed;

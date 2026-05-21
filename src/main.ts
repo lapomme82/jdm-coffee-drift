@@ -3,7 +3,7 @@ import "./styles.css";
 import { cars, getCar } from "./data/cars";
 import { tracks } from "./data/tracks";
 import { RaceScene } from "./scenes/RaceScene";
-import type { LeaderboardEntry, PlayerConfig, RaceResult, RaceSetup, RaceSnapshot, RaceViewportCar } from "./types";
+import type { LeaderboardEntry, PlayerConfig, Point, RaceResult, RaceSetup, RaceSnapshot, RaceViewportCar, TrackSpec, TrackTheme } from "./types";
 import { createRaceSeed, Rng } from "./gameplay/rng";
 import {
   createRoomCode,
@@ -15,7 +15,13 @@ import {
   type RoomPlayer
 } from "./multiplayer";
 
-type Screen = "title" | "setup" | "room-list" | "lobby" | "race" | "results";
+type Screen = "title" | "setup" | "room-list" | "lobby" | "race" | "results" | "map-tool";
+
+interface MapToolState {
+  track: TrackSpec;
+  selectedPointIndex: number;
+  notice: string;
+}
 
 interface DraftState {
   screen: Screen;
@@ -52,6 +58,14 @@ let nameUpdateTimer: number | undefined;
 let nameUpdatePromise: Promise<void> | undefined;
 let resultRenderSignature = "";
 let resultRenderTimer: number | undefined;
+const MAP_TOOL_STORAGE_KEY = "jdm-coffee-drift-map-tool";
+const mapThemePresets: Record<TrackSpec["category"], TrackTheme> = {
+  mountain: { sky: 0x172027, ground: 0x23382f, foliage: 0x537a5a, road: 0x35383d, roadEdge: 0xa5a58d, line: 0xf6d365, accent: 0xff6b35 },
+  coast: { sky: 0x86c5da, ground: 0xc8b99a, foliage: 0x2d6a4f, road: 0x363b40, roadEdge: 0xeae2b7, line: 0xffd166, accent: 0xfcbf49 },
+  country: { sky: 0xbde0fe, ground: 0x7fb069, foliage: 0x386641, road: 0x41444a, roadEdge: 0xe9edc9, line: 0xf4d35e, accent: 0xbc6c25 },
+  city: { sky: 0x090b10, ground: 0x202c39, foliage: 0x3a5a40, road: 0x2c2f35, roadEdge: 0xc7d2fe, line: 0xffd166, accent: 0xef476f }
+};
+const mapToolState: MapToolState = loadMapToolState();
 
 const game = new Phaser.Game({
   type: Phaser.CANVAS,
@@ -95,12 +109,16 @@ function bindGlobalEvents(): void {
   uiRoot.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     const action = target.closest<HTMLElement>("[data-action]")?.dataset.action;
-    if (!action) return;
+    if (!action) {
+      handleMapToolCanvasClick(event);
+      return;
+    }
 
     if (action === "start-title") {
       clearRoomSession();
       renderSetup();
     }
+    if (action === "show-map-tool") renderMapTool();
     if (action === "create-room") void createRoom();
     if (action === "show-room-list") void renderRoomList();
     if (action === "refresh-rooms") void renderRoomList();
@@ -123,12 +141,22 @@ function bindGlobalEvents(): void {
       clearRoomSession();
       renderTitle();
     }
-    if (action === "rematch") startRace(state.lastSetup?.trackId);
+    if (action === "rematch") startRace(state.lastSetup?.trackId, undefined, undefined, state.lastSetup?.customTrack);
     if (action === "new-setup") renderSetup();
+    if (action === "map-delete-point") deleteSelectedMapPoint();
+    if (action === "map-toggle-drift") toggleSelectedDriftCorner();
+    if (action === "map-reset") resetMapTool();
+    if (action === "map-save") saveMapToolDraft("브라우저에 맵 초안을 저장했습니다.");
+    if (action === "map-copy") void copyMapExport();
+    if (action === "map-test") testMapToolTrack();
   });
 
   uiRoot.addEventListener("input", (event) => {
     const input = event.target as HTMLInputElement;
+    if (input.dataset.mapField) {
+      updateMapTextField(input.dataset.mapField, input.value);
+      return;
+    }
     if (input.dataset.roomPlayerName) {
       scheduleRoomNameUpdate(input.value);
       return;
@@ -140,7 +168,20 @@ function bindGlobalEvents(): void {
   });
 
   uiRoot.addEventListener("change", (event) => {
-    const select = event.target as HTMLSelectElement;
+    const element = event.target as HTMLInputElement | HTMLSelectElement;
+    if (element.dataset.mapCategory) {
+      setMapCategory(element.value as TrackSpec["category"]);
+      return;
+    }
+    if (element.dataset.mapNumber) {
+      updateMapNumberField(element.dataset.mapNumber, element.value);
+      return;
+    }
+    if (element.dataset.mapPointCoordinate) {
+      updateSelectedMapPoint(element.dataset.mapPointCoordinate as "x" | "y", element.value);
+      return;
+    }
+    const select = element as HTMLSelectElement;
     if (select.dataset.roomCarSelect) {
       void updateLocalRoomPlayer({ carId: select.value, ready: false });
       if (state.room) renderLobby(state.room, { preserveScroll: true });
@@ -198,6 +239,380 @@ function randomizeCars(): void {
   renderSetup();
 }
 
+function createDefaultMapTrack(): TrackSpec {
+  return {
+    id: "custom-touge",
+    name: "Custom Touge",
+    category: "mountain",
+    description: "직접 만든 커피 레이스 코스입니다.",
+    seed: 8801,
+    roadWidth: 116,
+    laps: 5,
+    world: { width: 2400, height: 1600 },
+    theme: { ...mapThemePresets.mountain },
+    points: [
+      { x: 320, y: 980 },
+      { x: 560, y: 420 },
+      { x: 1080, y: 340 },
+      { x: 1580, y: 640 },
+      { x: 2040, y: 420 },
+      { x: 2140, y: 1110 },
+      { x: 1520, y: 1330 },
+      { x: 940, y: 1140 }
+    ],
+    driftCorners: [1, 3, 5, 7],
+    cameraAnchors: [{ x: 900, y: 640 }, { x: 1660, y: 720 }, { x: 1180, y: 1210 }]
+  };
+}
+
+function loadMapToolState(): MapToolState {
+  try {
+    const raw = localStorage.getItem(MAP_TOOL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as TrackSpec;
+      return { track: normalizeMapTrack(parsed), selectedPointIndex: 0, notice: "저장된 맵 초안을 불러왔습니다." };
+    }
+  } catch {
+    localStorage.removeItem(MAP_TOOL_STORAGE_KEY);
+  }
+  return { track: createDefaultMapTrack(), selectedPointIndex: 0, notice: "" };
+}
+
+function normalizeMapTrack(track: Partial<TrackSpec>): TrackSpec {
+  const fallback = createDefaultMapTrack();
+  const category = isTrackCategory(track.category) ? track.category : fallback.category;
+  const points = Array.isArray(track.points) && track.points.length >= 4
+    ? track.points.map((point) => ({
+      x: clampNumber(point.x, 0, track.world?.width ?? fallback.world.width),
+      y: clampNumber(point.y, 0, track.world?.height ?? fallback.world.height)
+    }))
+    : fallback.points;
+  const world = {
+    width: clampNumber(track.world?.width, 1200, 3600),
+    height: clampNumber(track.world?.height, 900, 2400)
+  };
+  const driftCorners = Array.isArray(track.driftCorners)
+    ? [...new Set(track.driftCorners.map((index) => Math.round(index)).filter((index) => index >= 0 && index < points.length))]
+    : fallback.driftCorners;
+  return {
+    id: slugifyTrackId(track.id || track.name || fallback.id),
+    name: String(track.name || fallback.name).slice(0, 40),
+    category,
+    description: String(track.description || fallback.description).slice(0, 120),
+    seed: Math.round(clampNumber(track.seed, 1, 999999)),
+    roadWidth: Math.round(clampNumber(track.roadWidth, 80, 160)),
+    laps: Math.round(clampNumber(track.laps, 1, 8)),
+    world,
+    theme: { ...(track.theme ?? mapThemePresets[category]) },
+    points,
+    driftCorners,
+    cameraAnchors: deriveCameraAnchors(points)
+  };
+}
+
+function renderMapTool(): void {
+  clearRoomSession();
+  state.screen = "map-tool";
+  game.scene.stop("RaceScene");
+  phaserRoot.classList.add("is-hidden");
+
+  const track = getMapToolExportTrack();
+  const selected = track.points[mapToolState.selectedPointIndex] ?? track.points[0];
+
+  uiRoot.innerHTML = `
+    <main class="screen screen--map-tool">
+      <header class="setup-header">
+        <div>
+          <p class="eyebrow">TRACK BUILDER</p>
+          <h1>맵툴</h1>
+          <p class="map-tool-hint">빈 공간을 클릭하면 포인트가 추가되고, 포인트를 클릭하면 선택됩니다. 선택한 포인트는 좌표 입력으로 정밀 조정할 수 있습니다.</p>
+        </div>
+        <div class="lobby-actions">
+          <button class="ghost-button" data-action="back-title">타이틀</button>
+          <button class="secondary-button" data-action="map-copy">JSON 복사</button>
+          <button class="primary-button" data-action="map-test">이 맵으로 테스트</button>
+        </div>
+      </header>
+
+      <section class="map-tool-layout">
+        <article class="map-editor-panel">
+          ${renderMapEditorSvg(track)}
+          ${mapToolState.notice ? `<p class="map-tool-notice">${escapeHtml(mapToolState.notice)}</p>` : ""}
+        </article>
+        <aside class="map-control-panel">
+          <div class="map-control-grid">
+            <label>맵 이름<input data-map-field="name" value="${escapeHtml(track.name)}" maxlength="40" /></label>
+            <label>맵 ID<input data-map-field="id" value="${escapeHtml(track.id)}" maxlength="40" /></label>
+            <label>테마
+              <select data-map-category="category">
+                ${(["mountain", "coast", "country", "city"] as TrackSpec["category"][]).map((category) => `<option value="${category}" ${track.category === category ? "selected" : ""}>${category}</option>`).join("")}
+              </select>
+            </label>
+            <label>Seed<input type="number" data-map-number="seed" value="${track.seed}" min="1" max="999999" /></label>
+            <label>도로 폭<input type="number" data-map-number="roadWidth" value="${track.roadWidth}" min="80" max="160" /></label>
+            <label>Lap<input type="number" data-map-number="laps" value="${track.laps}" min="1" max="8" /></label>
+            <label>월드 W<input type="number" data-map-number="worldWidth" value="${track.world.width}" min="1200" max="3600" /></label>
+            <label>월드 H<input type="number" data-map-number="worldHeight" value="${track.world.height}" min="900" max="2400" /></label>
+          </div>
+          <label class="map-description-label">설명<textarea data-map-field="description" maxlength="120">${escapeHtml(track.description)}</textarea></label>
+
+          <div class="map-selected-point">
+            <strong>선택 포인트 #${mapToolState.selectedPointIndex}</strong>
+            ${selected ? `
+              <label>X<input type="number" data-map-point-coordinate="x" value="${Math.round(selected.x)}" min="0" max="${track.world.width}" /></label>
+              <label>Y<input type="number" data-map-point-coordinate="y" value="${Math.round(selected.y)}" min="0" max="${track.world.height}" /></label>
+              <button class="secondary-button" data-action="map-toggle-drift">${track.driftCorners.includes(mapToolState.selectedPointIndex) ? "드리프트 해제" : "드리프트 지정"}</button>
+              <button class="ghost-button" data-action="map-delete-point" ${track.points.length <= 4 ? "disabled" : ""}>포인트 삭제</button>
+            ` : ""}
+          </div>
+
+          <div class="map-point-list">
+            ${track.points.map((point, index) => `
+              <button class="${index === mapToolState.selectedPointIndex ? "is-selected" : ""}" data-map-point="${index}">
+                #${index} ${Math.round(point.x)}, ${Math.round(point.y)}${track.driftCorners.includes(index) ? " · drift" : ""}
+              </button>
+            `).join("")}
+          </div>
+
+          <div class="map-tool-actions">
+            <button class="secondary-button" data-action="map-save">초안 저장</button>
+            <button class="ghost-button" data-action="map-reset">기본 맵으로 초기화</button>
+          </div>
+          <label class="map-export-label">TrackSpec JSON<textarea data-map-export readonly>${escapeHtml(formatMapExport(track))}</textarea></label>
+        </aside>
+      </section>
+    </main>
+  `;
+}
+
+function renderMapEditorSvg(track: TrackSpec): string {
+  const path = makeMapPath(track.points);
+  const selected = mapToolState.selectedPointIndex;
+  return `
+    <svg class="map-canvas" data-map-canvas viewBox="0 0 ${track.world.width} ${track.world.height}" role="img" aria-label="맵 편집 캔버스">
+      <rect width="${track.world.width}" height="${track.world.height}" class="map-canvas__ground" />
+      <path d="${path}" class="map-canvas__edge" stroke-width="${track.roadWidth + 36}" />
+      <path d="${path}" class="map-canvas__road" stroke-width="${track.roadWidth}" />
+      <path d="${path}" class="map-canvas__line" />
+      ${track.driftCorners.map((index) => {
+        const point = track.points[index];
+        return point ? `<circle class="map-canvas__drift" cx="${point.x}" cy="${point.y}" r="${track.roadWidth * 0.34}" />` : "";
+      }).join("")}
+      ${track.points.map((point, index) => `
+        <g class="map-canvas__point ${index === selected ? "is-selected" : ""} ${track.driftCorners.includes(index) ? "is-drift" : ""}" data-map-point="${index}" transform="translate(${point.x} ${point.y})">
+          <circle r="30" />
+          <text y="8">${index}</text>
+        </g>
+      `).join("")}
+    </svg>
+  `;
+}
+
+function handleMapToolCanvasClick(event: MouseEvent): void {
+  if (state.screen !== "map-tool") return;
+  const target = event.target as Element | null;
+  if (!target) return;
+  const pointElement = target.closest<HTMLElement>("[data-map-point]");
+  if (pointElement?.dataset.mapPoint) {
+    mapToolState.selectedPointIndex = Number(pointElement.dataset.mapPoint);
+    mapToolState.notice = `포인트 #${mapToolState.selectedPointIndex} 선택`;
+    saveMapToolDraft();
+    renderMapTool();
+    return;
+  }
+  const canvas = target.closest<SVGSVGElement>("[data-map-canvas]");
+  if (!canvas) return;
+  const point = getMapCanvasPoint(event, canvas);
+  mapToolState.track.points.push(point);
+  mapToolState.selectedPointIndex = mapToolState.track.points.length - 1;
+  mapToolState.notice = `포인트 #${mapToolState.selectedPointIndex} 추가`;
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function updateMapTextField(field: string, value: string): void {
+  if (field === "name") mapToolState.track.name = value.slice(0, 40);
+  if (field === "id") mapToolState.track.id = slugifyTrackId(value);
+  if (field === "description") mapToolState.track.description = value.slice(0, 120);
+  mapToolState.notice = "";
+  saveMapToolDraft();
+  refreshMapExport();
+}
+
+function updateMapNumberField(field: string, rawValue: string): void {
+  const value = Number(rawValue);
+  if (field === "seed") mapToolState.track.seed = Math.round(clampNumber(value, 1, 999999));
+  if (field === "roadWidth") mapToolState.track.roadWidth = Math.round(clampNumber(value, 80, 160));
+  if (field === "laps") mapToolState.track.laps = Math.round(clampNumber(value, 1, 8));
+  if (field === "worldWidth") mapToolState.track.world.width = Math.round(clampNumber(value, 1200, 3600));
+  if (field === "worldHeight") mapToolState.track.world.height = Math.round(clampNumber(value, 900, 2400));
+  mapToolState.track.points = mapToolState.track.points.map((point) => ({
+    x: clampNumber(point.x, 0, mapToolState.track.world.width),
+    y: clampNumber(point.y, 0, mapToolState.track.world.height)
+  }));
+  mapToolState.notice = "맵 설정을 업데이트했습니다.";
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function updateSelectedMapPoint(axis: "x" | "y", rawValue: string): void {
+  const point = mapToolState.track.points[mapToolState.selectedPointIndex];
+  if (!point) return;
+  const limit = axis === "x" ? mapToolState.track.world.width : mapToolState.track.world.height;
+  point[axis] = Math.round(clampNumber(Number(rawValue), 0, limit));
+  mapToolState.notice = `포인트 #${mapToolState.selectedPointIndex} 좌표를 수정했습니다.`;
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function setMapCategory(category: TrackSpec["category"]): void {
+  if (!isTrackCategory(category)) return;
+  mapToolState.track.category = category;
+  mapToolState.track.theme = { ...mapThemePresets[category] };
+  mapToolState.notice = `${category} 테마를 적용했습니다.`;
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function deleteSelectedMapPoint(): void {
+  if (mapToolState.track.points.length <= 4) {
+    mapToolState.notice = "폐쇄형 트랙은 최소 4개 포인트가 필요합니다.";
+    renderMapTool();
+    return;
+  }
+  const removed = mapToolState.selectedPointIndex;
+  mapToolState.track.points.splice(removed, 1);
+  mapToolState.track.driftCorners = mapToolState.track.driftCorners
+    .filter((index) => index !== removed)
+    .map((index) => index > removed ? index - 1 : index);
+  mapToolState.selectedPointIndex = Math.max(0, Math.min(removed, mapToolState.track.points.length - 1));
+  mapToolState.notice = `포인트 #${removed} 삭제`;
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function toggleSelectedDriftCorner(): void {
+  const index = mapToolState.selectedPointIndex;
+  const corners = new Set(mapToolState.track.driftCorners);
+  if (corners.has(index)) {
+    corners.delete(index);
+    mapToolState.notice = `포인트 #${index} 드리프트 해제`;
+  } else {
+    corners.add(index);
+    mapToolState.notice = `포인트 #${index} 드리프트 지정`;
+  }
+  mapToolState.track.driftCorners = [...corners].sort((a, b) => a - b);
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function resetMapTool(): void {
+  mapToolState.track = createDefaultMapTrack();
+  mapToolState.selectedPointIndex = 0;
+  mapToolState.notice = "기본 맵으로 초기화했습니다.";
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function saveMapToolDraft(message?: string): void {
+  mapToolState.track.cameraAnchors = deriveCameraAnchors(mapToolState.track.points);
+  localStorage.setItem(MAP_TOOL_STORAGE_KEY, JSON.stringify(getMapToolExportTrack()));
+  if (message) {
+    mapToolState.notice = message;
+    renderMapTool();
+  }
+}
+
+async function copyMapExport(): Promise<void> {
+  const text = formatMapExport(getMapToolExportTrack());
+  try {
+    await navigator.clipboard.writeText(text);
+    mapToolState.notice = "TrackSpec JSON을 클립보드에 복사했습니다.";
+  } catch {
+    const textarea = document.querySelector<HTMLTextAreaElement>("[data-map-export]");
+    textarea?.select();
+    document.execCommand("copy");
+    mapToolState.notice = "TrackSpec JSON을 선택/복사했습니다.";
+  }
+  renderMapTool();
+}
+
+function testMapToolTrack(): void {
+  const track = getMapToolExportTrack();
+  if (track.points.length < 4) {
+    mapToolState.notice = "테스트 주행에는 최소 4개 포인트가 필요합니다.";
+    renderMapTool();
+    return;
+  }
+  saveMapToolDraft();
+  const seed = createRaceSeed([track.name, String(track.seed), ...state.players.map((player) => player.name)]);
+  startRace(track.id, undefined, seed, track);
+}
+
+function refreshMapExport(): void {
+  const textarea = document.querySelector<HTMLTextAreaElement>("[data-map-export]");
+  if (textarea) textarea.value = formatMapExport(getMapToolExportTrack());
+}
+
+function getMapToolExportTrack(): TrackSpec {
+  const track = normalizeMapTrack(mapToolState.track);
+  track.cameraAnchors = deriveCameraAnchors(track.points);
+  mapToolState.track = track;
+  mapToolState.selectedPointIndex = Math.max(0, Math.min(mapToolState.selectedPointIndex, track.points.length - 1));
+  return cloneTrack(track);
+}
+
+function makeMapPath(points: Point[]): string {
+  if (points.length === 0) return "";
+  const [first, ...rest] = points;
+  return [`M ${first.x} ${first.y}`, ...rest.map((point) => `L ${point.x} ${point.y}`), "Z"].join(" ");
+}
+
+function getMapCanvasPoint(event: MouseEvent, canvas: SVGSVGElement): Point {
+  const rect = canvas.getBoundingClientRect();
+  const width = mapToolState.track.world.width;
+  const height = mapToolState.track.world.height;
+  return {
+    x: Math.round(clampNumber(((event.clientX - rect.left) / Math.max(1, rect.width)) * width, 0, width)),
+    y: Math.round(clampNumber(((event.clientY - rect.top) / Math.max(1, rect.height)) * height, 0, height))
+  };
+}
+
+function deriveCameraAnchors(points: Point[]): Point[] {
+  if (points.length === 0) return [];
+  const first = points[0];
+  const middle = points[Math.floor(points.length / 2)] ?? first;
+  const last = points[Math.max(0, points.length - 2)] ?? first;
+  return [first, middle, last].map((point) => ({ x: Math.round(point.x), y: Math.round(point.y) }));
+}
+
+function formatMapExport(track: TrackSpec): string {
+  return JSON.stringify(track, null, 2);
+}
+
+function cloneTrack(track: TrackSpec): TrackSpec {
+  return JSON.parse(JSON.stringify(track)) as TrackSpec;
+}
+
+function clampNumber(value: unknown, min: number, max: number): number {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numberValue)) return min;
+  return Math.max(min, Math.min(max, numberValue));
+}
+
+function isTrackCategory(value: unknown): value is TrackSpec["category"] {
+  return value === "mountain" || value === "coast" || value === "country" || value === "city";
+}
+
+function slugifyTrackId(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "custom-touge";
+}
+
 function renderTitle(): void {
   state.screen = "title";
   game.scene.stop("RaceScene");
@@ -215,6 +630,7 @@ function renderTitle(): void {
             <button class="primary-button" data-action="create-room">레이스 개설</button>
             <button class="secondary-button" data-action="show-room-list">레이스 참가</button>
             <button class="ghost-button" data-action="start-title">로컬 게임</button>
+            <button class="ghost-button" data-action="show-map-tool">맵툴</button>
           </div>
         </div>
         <div class="title-race-card" aria-hidden="true">
@@ -742,7 +1158,7 @@ function getRuleClassLabel(ruleClass: string): string {
   return "일반 차량 · 신호/추월금지 규칙 적용";
 }
 
-function startRace(forceTrackId?: string, forcedPlayers?: PlayerConfig[], forcedSeed?: number): void {
+function startRace(forceTrackId?: string, forcedPlayers?: PlayerConfig[], forcedSeed?: number, customTrack?: TrackSpec): void {
   const sourcePlayers = forcedPlayers ?? state.players;
   const players = sourcePlayers.map((player, index) => ({
     ...player,
@@ -752,8 +1168,8 @@ function startRace(forceTrackId?: string, forcedPlayers?: PlayerConfig[], forced
 
   const seed = forcedSeed ?? createRaceSeed(players.map((player) => player.name));
   const rng = new Rng(seed);
-  const trackId = forceTrackId ?? tracks[rng.int(0, tracks.length - 1)].id;
-  const setup: RaceSetup = { players, trackId, seed };
+  const trackId = customTrack?.id ?? forceTrackId ?? tracks[rng.int(0, tracks.length - 1)].id;
+  const setup: RaceSetup = { players, trackId, seed, customTrack: customTrack ? cloneTrack(customTrack) : undefined };
   state.lastSetup = setup;
   state.screen = "race";
   latestSnapshot = undefined;

@@ -785,6 +785,39 @@ export class RaceEngine {
 function buildTrafficPlan(track: TrackSpec, runtime: TrackRuntime): TrackTrafficPlan {
   const lapLength = runtime.totalLength;
   const rng = new Rng(track.seed ^ 0x51a7c0de);
+
+  if (track.trafficRules) {
+    const noPassingZones = track.trafficRules.noPassingZones.map((zone, index) => ({
+      id: zone.id || `custom-no-pass-${index + 1}`,
+      start: getTrackPointProgress(track, runtime, zone.startPoint),
+      end: getTrackPointProgress(track, runtime, zone.endPoint)
+    }));
+    const trafficLights = track.trafficRules.trafficLights.map((light, index) => ({
+      id: light.id || `custom-signal-${index + 1}`,
+      progress: getTrackPointProgress(track, runtime, light.pointIndex),
+      greenDuration: Math.max(2.5, light.greenDuration),
+      redDuration: Math.max(2.5, light.redDuration),
+      phaseOffset: light.phaseOffset
+    }));
+    const shortcuts = track.trafficRules.shortcuts.map((shortcut, index) => {
+      const start = getTrackPointProgress(track, runtime, shortcut.startPoint);
+      const end = getTrackPointProgress(track, runtime, shortcut.endPoint);
+      const bonusProgress = Math.max(160, distanceAheadOnLap(start, end, lapLength));
+      const route = buildShortcutRoute(runtime, track.roadWidth, start, end, shortcut.offsetSign, rng);
+      return {
+        id: shortcut.id || `custom-shortcut-${index + 1}`,
+        start,
+        end,
+        bonusProgress,
+        offsetSign: shortcut.offsetSign,
+        label: shortcut.label || "커스텀 샛길",
+        route,
+        routeLength: getPolylineLength(route)
+      };
+    });
+    return { noPassingZones, trafficLights, shortcuts, policeTraps: buildPoliceTraps(rng, lapLength, noPassingZones, trafficLights) };
+  }
+
   const noPassingLength = lapLength * 0.1;
   const noPassingCenters = [0.18, 0.49, 0.78].map((base, index) => normalizeDistance((base + rng.range(-0.035, 0.035)) * lapLength + index * 7, lapLength));
   const noPassingZones = noPassingCenters.map((center, index) => ({
@@ -821,14 +854,26 @@ function buildTrafficPlan(track: TrackSpec, runtime: TrackRuntime): TrackTraffic
     };
   });
 
+  return { noPassingZones, trafficLights, shortcuts, policeTraps: buildPoliceTraps(rng, lapLength, noPassingZones, trafficLights) };
+}
+
+function buildPoliceTraps(
+  rng: Rng,
+  lapLength: number,
+  noPassingZones: RoadRuleZone[],
+  trafficLights: TrafficLightRuntime[]
+): PoliceTrapRuntime[] {
   const policeCount = 1 + rng.int(0, 1);
-  const policeCandidates = [
+  const policeCandidates: Array<{ progress: number; watches: PoliceTrapRuntime["watches"] }> = [
     ...trafficLights.map((light) => ({ progress: light.progress, watches: "signal" as const })),
     ...noPassingZones.map((zone) => ({ progress: zone.start, watches: "noPassing" as const }))
   ];
+  const candidates = policeCandidates.length > 0
+    ? policeCandidates
+    : [{ progress: lapLength * 0.5, watches: "both" as const }];
   const policeTraps: PoliceTrapRuntime[] = [];
   for (let index = 0; index < policeCount; index += 1) {
-    const candidate = rng.pick(policeCandidates);
+    const candidate = rng.pick(candidates);
     policeTraps.push({
       id: `police-${index + 1}`,
       progress: normalizeDistance(candidate.progress + rng.range(-90, 90), lapLength),
@@ -836,8 +881,28 @@ function buildTrafficPlan(track: TrackSpec, runtime: TrackRuntime): TrackTraffic
       watches: rng.chance(0.32) ? "both" : candidate.watches
     });
   }
+  return policeTraps;
+}
 
-  return { noPassingZones, trafficLights, shortcuts, policeTraps };
+function getTrackPointProgress(track: TrackSpec, runtime: TrackRuntime, pointIndex: number): number {
+  const point = track.points[normalizePointIndex(pointIndex, track.points.length)];
+  let nearest = runtime.samples[0];
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const sample of runtime.samples) {
+    const sampleDistance = pointDistance(point, sample.point);
+    if (sampleDistance < nearestDistance) {
+      nearestDistance = sampleDistance;
+      nearest = sample;
+    }
+  }
+  return normalizeDistance(nearest.distance, runtime.totalLength);
+}
+
+function normalizePointIndex(index: number, total: number): number {
+  if (total <= 0) return 0;
+  const rounded = Math.round(index);
+  const normalized = rounded % total;
+  return normalized < 0 ? normalized + total : normalized;
 }
 
 function getShortcutDisplaySpeed(car: CarRuntime, packPosition: number): number {

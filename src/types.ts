@@ -68,6 +68,34 @@ export interface TrackTheme {
   accent: number;
 }
 
+export interface TrackNoPassingRuleSpec {
+  id: string;
+  startPoint: number;
+  endPoint: number;
+}
+
+export interface TrackTrafficLightSpec {
+  id: string;
+  pointIndex: number;
+  greenDuration: number;
+  redDuration: number;
+  phaseOffset: number;
+}
+
+export interface TrackShortcutSpec {
+  id: string;
+  startPoint: number;
+  endPoint: number;
+  label: string;
+  offsetSign: 1 | -1;
+}
+
+export interface TrackTrafficRuleSpec {
+  noPassingZones: TrackNoPassingRuleSpec[];
+  trafficLights: TrackTrafficLightSpec[];
+  shortcuts: TrackShortcutSpec[];
+}
+
 export interface TrackSpec {
   id: string;
   name: string;
@@ -84,6 +112,7 @@ export interface TrackSpec {
   points: Point[];
   driftCorners: number[];
   cameraAnchors: Point[];
+  trafficRules?: TrackTrafficRuleSpec;
 }
 
 export interface RaceSetup {

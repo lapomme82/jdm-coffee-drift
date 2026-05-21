@@ -1592,10 +1592,53 @@ h1,
   stroke-linejoin: round;
 }
 
+.map-canvas__no-pass {
+  stroke: #ffca3a;
+  stroke-width: 26px;
+  stroke-linecap: round;
+  stroke-dasharray: 18 12;
+  opacity: 0.72;
+}
+
+.map-canvas__shortcut {
+  fill: none;
+  stroke: #7ee081;
+  stroke-width: 18px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 28 18;
+  opacity: 0.82;
+}
+
 .map-canvas__drift {
   fill: rgba(255, 180, 94, 0.22);
   stroke: #ffb45e;
   stroke-width: 8px;
+}
+
+.map-canvas__signal {
+  pointer-events: none;
+}
+
+.map-canvas__signal rect {
+  fill: #101317;
+  stroke: #f5eedc;
+  stroke-width: 4px;
+}
+
+.map-canvas__signal circle:first-of-type {
+  fill: #ff2f4f;
+}
+
+.map-canvas__signal circle:last-of-type {
+  fill: #7ee081;
+}
+
+.map-canvas__signal text {
+  fill: #f5eedc;
+  font-size: 24px;
+  font-weight: 900;
+  text-anchor: middle;
 }
 
 .map-canvas__point {
@@ -1679,6 +1722,58 @@ h1,
 .map-selected-point strong {
   grid-column: 1 / -1;
   color: #f5eedc;
+}
+
+.map-rule-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 2px solid #20313b;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.map-rule-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #f5eedc;
+}
+
+.map-rule-panel header span {
+  color: #aeb8c2;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.map-rule-list {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.map-rule-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #2a3a43;
+  background: rgba(6, 9, 13, 0.8);
+}
+
+.map-rule-card strong,
+.map-rule-card button {
+  grid-column: 1 / -1;
+}
+
+.map-empty-rule {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed #2a3a43;
+  color: #7f8b96;
+  font-size: 0.75rem;
+  font-weight: 900;
 }
 
 .map-point-list {
@@ -1807,6 +1902,7 @@ h1,
 
   .map-control-grid,
   .map-selected-point,
+  .map-rule-card,
   .map-point-list,
   .map-tool-actions {
     grid-template-columns: 1fr;

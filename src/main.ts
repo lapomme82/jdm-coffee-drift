@@ -149,12 +149,20 @@ function bindGlobalEvents(): void {
     if (action === "map-save") saveMapToolDraft("브라우저에 맵 초안을 저장했습니다.");
     if (action === "map-copy") void copyMapExport();
     if (action === "map-test") testMapToolTrack();
+    if (action === "map-add-no-passing") addMapNoPassingZone();
+    if (action === "map-add-signal") addMapTrafficLight();
+    if (action === "map-add-shortcut") addMapShortcut();
+    if (action === "map-delete-rule") deleteMapRule(target.closest<HTMLElement>("[data-rule-type]"));
   });
 
   uiRoot.addEventListener("input", (event) => {
     const input = event.target as HTMLInputElement;
     if (input.dataset.mapField) {
       updateMapTextField(input.dataset.mapField, input.value);
+      return;
+    }
+    if (input.dataset.mapRuleText) {
+      updateMapRuleText(input.dataset.mapRuleText, input.value);
       return;
     }
     if (input.dataset.roomPlayerName) {
@@ -179,6 +187,18 @@ function bindGlobalEvents(): void {
     }
     if (element.dataset.mapPointCoordinate) {
       updateSelectedMapPoint(element.dataset.mapPointCoordinate as "x" | "y", element.value);
+      return;
+    }
+    if (element.dataset.mapRulePoint) {
+      updateMapRulePoint(element.dataset.mapRulePoint, element.value);
+      return;
+    }
+    if (element.dataset.mapRuleNumber) {
+      updateMapRuleNumber(element.dataset.mapRuleNumber, element.value);
+      return;
+    }
+    if (element.dataset.mapRuleText) {
+      updateMapRuleText(element.dataset.mapRuleText, element.value);
       return;
     }
     const select = element as HTMLSelectElement;
@@ -261,7 +281,12 @@ function createDefaultMapTrack(): TrackSpec {
       { x: 940, y: 1140 }
     ],
     driftCorners: [1, 3, 5, 7],
-    cameraAnchors: [{ x: 900, y: 640 }, { x: 1660, y: 720 }, { x: 1180, y: 1210 }]
+    cameraAnchors: [{ x: 900, y: 640 }, { x: 1660, y: 720 }, { x: 1180, y: 1210 }],
+    trafficRules: {
+      noPassingZones: [{ id: "no-pass-1", startPoint: 2, endPoint: 3 }],
+      trafficLights: [{ id: "signal-1", pointIndex: 4, greenDuration: 6.4, redDuration: 6.4, phaseOffset: 0 }],
+      shortcuts: [{ id: "shortcut-1", startPoint: 1, endPoint: 3, label: "커스텀 샛길", offsetSign: 1 }]
+    }
   };
 }
 
@@ -294,6 +319,7 @@ function normalizeMapTrack(track: Partial<TrackSpec>): TrackSpec {
   const driftCorners = Array.isArray(track.driftCorners)
     ? [...new Set(track.driftCorners.map((index) => Math.round(index)).filter((index) => index >= 0 && index < points.length))]
     : fallback.driftCorners;
+  const trafficRules = normalizeTrafficRules(track.trafficRules ?? fallback.trafficRules, points.length);
   return {
     id: slugifyTrackId(track.id || track.name || fallback.id),
     name: String(track.name || fallback.name).slice(0, 40),
@@ -306,7 +332,33 @@ function normalizeMapTrack(track: Partial<TrackSpec>): TrackSpec {
     theme: { ...(track.theme ?? mapThemePresets[category]) },
     points,
     driftCorners,
-    cameraAnchors: deriveCameraAnchors(points)
+    cameraAnchors: deriveCameraAnchors(points),
+    trafficRules
+  };
+}
+
+function normalizeTrafficRules(rules: TrackSpec["trafficRules"], pointCount: number): NonNullable<TrackSpec["trafficRules"]> {
+  const safePointCount = Math.max(1, pointCount);
+  return {
+    noPassingZones: (rules?.noPassingZones ?? []).map((zone, index) => ({
+      id: zone.id || `no-pass-${index + 1}`,
+      startPoint: normalizeMapPointIndex(zone.startPoint, safePointCount),
+      endPoint: normalizeMapPointIndex(zone.endPoint, safePointCount)
+    })),
+    trafficLights: (rules?.trafficLights ?? []).map((light, index) => ({
+      id: light.id || `signal-${index + 1}`,
+      pointIndex: normalizeMapPointIndex(light.pointIndex, safePointCount),
+      greenDuration: Math.round(clampNumber(light.greenDuration, 3, 12) * 10) / 10,
+      redDuration: Math.round(clampNumber(light.redDuration, 3, 12) * 10) / 10,
+      phaseOffset: Math.round(clampNumber(light.phaseOffset, 0, 20) * 10) / 10
+    })),
+    shortcuts: (rules?.shortcuts ?? []).map((shortcut, index) => ({
+      id: shortcut.id || `shortcut-${index + 1}`,
+      startPoint: normalizeMapPointIndex(shortcut.startPoint, safePointCount),
+      endPoint: normalizeMapPointIndex(shortcut.endPoint, safePointCount),
+      label: String(shortcut.label || "커스텀 샛길").slice(0, 24),
+      offsetSign: shortcut.offsetSign === -1 ? -1 : 1
+    }))
   };
 }
 
@@ -363,8 +415,13 @@ function renderMapTool(): void {
               <label>Y<input type="number" data-map-point-coordinate="y" value="${Math.round(selected.y)}" min="0" max="${track.world.height}" /></label>
               <button class="secondary-button" data-action="map-toggle-drift">${track.driftCorners.includes(mapToolState.selectedPointIndex) ? "드리프트 해제" : "드리프트 지정"}</button>
               <button class="ghost-button" data-action="map-delete-point" ${track.points.length <= 4 ? "disabled" : ""}>포인트 삭제</button>
+              <button class="secondary-button" data-action="map-add-no-passing">추월금지 추가</button>
+              <button class="secondary-button" data-action="map-add-signal">신호등 추가</button>
+              <button class="secondary-button" data-action="map-add-shortcut">샛길 추가</button>
             ` : ""}
           </div>
+
+          ${renderTrafficRuleEditor(track)}
 
           <div class="map-point-list">
             ${track.points.map((point, index) => `
@@ -394,10 +451,23 @@ function renderMapEditorSvg(track: TrackSpec): string {
       <path d="${path}" class="map-canvas__edge" stroke-width="${track.roadWidth + 36}" />
       <path d="${path}" class="map-canvas__road" stroke-width="${track.roadWidth}" />
       <path d="${path}" class="map-canvas__line" />
+      ${track.trafficRules?.noPassingZones.map((zone) => {
+        const start = track.points[zone.startPoint];
+        const end = track.points[zone.endPoint];
+        return start && end ? `<line class="map-canvas__no-pass" x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" />` : "";
+      }).join("") ?? ""}
+      ${track.trafficRules?.shortcuts.map((shortcut) => {
+        const route = getMapShortcutPreviewRoute(track, shortcut.startPoint, shortcut.endPoint, shortcut.offsetSign);
+        return `<polyline class="map-canvas__shortcut" points="${route.map((point) => `${point.x},${point.y}`).join(" ")}" />`;
+      }).join("") ?? ""}
       ${track.driftCorners.map((index) => {
         const point = track.points[index];
         return point ? `<circle class="map-canvas__drift" cx="${point.x}" cy="${point.y}" r="${track.roadWidth * 0.34}" />` : "";
       }).join("")}
+      ${track.trafficRules?.trafficLights.map((light, index) => {
+        const point = track.points[light.pointIndex];
+        return point ? `<g class="map-canvas__signal" transform="translate(${point.x} ${point.y})"><rect x="-20" y="-34" width="40" height="68" rx="4" /><circle cy="-14" r="8" /><circle cy="14" r="8" /><text y="52">S${index + 1}</text></g>` : "";
+      }).join("") ?? ""}
       ${track.points.map((point, index) => `
         <g class="map-canvas__point ${index === selected ? "is-selected" : ""} ${track.driftCorners.includes(index) ? "is-drift" : ""}" data-map-point="${index}" transform="translate(${point.x} ${point.y})">
           <circle r="30" />
@@ -405,6 +475,61 @@ function renderMapEditorSvg(track: TrackSpec): string {
         </g>
       `).join("")}
     </svg>
+  `;
+}
+
+function renderTrafficRuleEditor(track: TrackSpec): string {
+  const rules = track.trafficRules ?? normalizeTrafficRules(undefined, track.points.length);
+  return `
+    <section class="map-rule-panel">
+      <header>
+        <strong>교통 규칙 오브젝트</strong>
+        <span>추월금지 ${rules.noPassingZones.length} · 신호등 ${rules.trafficLights.length} · 샛길 ${rules.shortcuts.length}</span>
+      </header>
+      <div class="map-rule-list">
+        ${rules.noPassingZones.length > 0 ? rules.noPassingZones.map((zone, index) => `
+          <article class="map-rule-card" data-rule-type="noPassing" data-rule-index="${index}">
+            <strong>추월금지 #${index + 1}</strong>
+            <label>시작${renderPointSelect("noPassing", index, "startPoint", zone.startPoint, track.points.length)}</label>
+            <label>종료${renderPointSelect("noPassing", index, "endPoint", zone.endPoint, track.points.length)}</label>
+            <button class="ghost-button" data-action="map-delete-rule">삭제</button>
+          </article>
+        `).join("") : `<p class="map-empty-rule">추월금지 구간 없음</p>`}
+        ${rules.trafficLights.length > 0 ? rules.trafficLights.map((light, index) => `
+          <article class="map-rule-card" data-rule-type="signal" data-rule-index="${index}">
+            <strong>신호등 #${index + 1}</strong>
+            <label>위치${renderPointSelect("signal", index, "pointIndex", light.pointIndex, track.points.length)}</label>
+            <label>초록<input type="number" data-map-rule-number="signal:${index}:greenDuration" value="${light.greenDuration}" min="3" max="12" step="0.5" /></label>
+            <label>빨강<input type="number" data-map-rule-number="signal:${index}:redDuration" value="${light.redDuration}" min="3" max="12" step="0.5" /></label>
+            <label>위상<input type="number" data-map-rule-number="signal:${index}:phaseOffset" value="${light.phaseOffset}" min="0" max="20" step="0.5" /></label>
+            <button class="ghost-button" data-action="map-delete-rule">삭제</button>
+          </article>
+        `).join("") : `<p class="map-empty-rule">신호등 없음</p>`}
+        ${rules.shortcuts.length > 0 ? rules.shortcuts.map((shortcut, index) => `
+          <article class="map-rule-card" data-rule-type="shortcut" data-rule-index="${index}">
+            <strong>샛길 #${index + 1}</strong>
+            <label>이름<input data-map-rule-text="shortcut:${index}:label" value="${escapeHtml(shortcut.label)}" maxlength="24" /></label>
+            <label>진입${renderPointSelect("shortcut", index, "startPoint", shortcut.startPoint, track.points.length)}</label>
+            <label>출구${renderPointSelect("shortcut", index, "endPoint", shortcut.endPoint, track.points.length)}</label>
+            <label>방향
+              <select data-map-rule-point="shortcut:${index}:offsetSign">
+                <option value="1" ${shortcut.offsetSign === 1 ? "selected" : ""}>우측/바깥</option>
+                <option value="-1" ${shortcut.offsetSign === -1 ? "selected" : ""}>좌측/안쪽</option>
+              </select>
+            </label>
+            <button class="ghost-button" data-action="map-delete-rule">삭제</button>
+          </article>
+        `).join("") : `<p class="map-empty-rule">샛길 없음</p>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderPointSelect(ruleType: string, index: number, field: string, value: number, pointCount: number): string {
+  return `
+    <select data-map-rule-point="${ruleType}:${index}:${field}">
+      ${Array.from({ length: pointCount }, (_, pointIndex) => `<option value="${pointIndex}" ${pointIndex === value ? "selected" : ""}>#${pointIndex}</option>`).join("")}
+    </select>
   `;
 }
 
@@ -485,6 +610,7 @@ function deleteSelectedMapPoint(): void {
   mapToolState.track.driftCorners = mapToolState.track.driftCorners
     .filter((index) => index !== removed)
     .map((index) => index > removed ? index - 1 : index);
+  updateTrafficRulesAfterPointDelete(removed);
   mapToolState.selectedPointIndex = Math.max(0, Math.min(removed, mapToolState.track.points.length - 1));
   mapToolState.notice = `포인트 #${removed} 삭제`;
   saveMapToolDraft();
@@ -504,6 +630,129 @@ function toggleSelectedDriftCorner(): void {
   mapToolState.track.driftCorners = [...corners].sort((a, b) => a - b);
   saveMapToolDraft();
   renderMapTool();
+}
+
+function addMapNoPassingZone(): void {
+  const rules = ensureMapTrafficRules();
+  const startPoint = mapToolState.selectedPointIndex;
+  rules.noPassingZones.push({
+    id: `no-pass-${rules.noPassingZones.length + 1}`,
+    startPoint,
+    endPoint: normalizeMapPointIndex(startPoint + 1, mapToolState.track.points.length)
+  });
+  mapToolState.notice = `포인트 #${startPoint}부터 추월금지 구간을 추가했습니다.`;
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function addMapTrafficLight(): void {
+  const rules = ensureMapTrafficRules();
+  rules.trafficLights.push({
+    id: `signal-${rules.trafficLights.length + 1}`,
+    pointIndex: mapToolState.selectedPointIndex,
+    greenDuration: 6.4,
+    redDuration: 6.4,
+    phaseOffset: 0
+  });
+  mapToolState.notice = `포인트 #${mapToolState.selectedPointIndex}에 신호등을 추가했습니다.`;
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function addMapShortcut(): void {
+  const rules = ensureMapTrafficRules();
+  const startPoint = mapToolState.selectedPointIndex;
+  rules.shortcuts.push({
+    id: `shortcut-${rules.shortcuts.length + 1}`,
+    startPoint,
+    endPoint: normalizeMapPointIndex(startPoint + 2, mapToolState.track.points.length),
+    label: `샛길 ${rules.shortcuts.length + 1}`,
+    offsetSign: rules.shortcuts.length % 2 === 0 ? 1 : -1
+  });
+  mapToolState.notice = `포인트 #${startPoint}부터 샛길을 추가했습니다.`;
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function deleteMapRule(element?: HTMLElement | null): void {
+  if (!element?.dataset.ruleType || !element.dataset.ruleIndex) return;
+  const rules = ensureMapTrafficRules();
+  const index = Number(element.dataset.ruleIndex);
+  if (element.dataset.ruleType === "noPassing") rules.noPassingZones.splice(index, 1);
+  if (element.dataset.ruleType === "signal") rules.trafficLights.splice(index, 1);
+  if (element.dataset.ruleType === "shortcut") rules.shortcuts.splice(index, 1);
+  mapToolState.notice = "교통 규칙 오브젝트를 삭제했습니다.";
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function updateMapRulePoint(encoded: string, rawValue: string): void {
+  const [ruleType, rawIndex, field] = encoded.split(":");
+  const index = Number(rawIndex);
+  const rules = ensureMapTrafficRules();
+  const pointValue = field === "offsetSign"
+    ? (Number(rawValue) === -1 ? -1 : 1)
+    : normalizeMapPointIndex(Number(rawValue), mapToolState.track.points.length);
+
+  if (ruleType === "noPassing") {
+    const zone = rules.noPassingZones[index];
+    if (zone && (field === "startPoint" || field === "endPoint")) zone[field] = pointValue as number;
+  }
+  if (ruleType === "signal") {
+    const light = rules.trafficLights[index];
+    if (light && field === "pointIndex") light.pointIndex = pointValue as number;
+  }
+  if (ruleType === "shortcut") {
+    const shortcut = rules.shortcuts[index];
+    if (shortcut && (field === "startPoint" || field === "endPoint")) shortcut[field] = pointValue as number;
+    if (shortcut && field === "offsetSign") shortcut.offsetSign = pointValue as 1 | -1;
+  }
+  mapToolState.notice = "교통 규칙 위치를 수정했습니다.";
+  saveMapToolDraft();
+  renderMapTool();
+}
+
+function updateMapRuleNumber(encoded: string, rawValue: string): void {
+  const [ruleType, rawIndex, field] = encoded.split(":");
+  if (ruleType !== "signal") return;
+  const light = ensureMapTrafficRules().trafficLights[Number(rawIndex)];
+  if (!light) return;
+  const value = Number(rawValue);
+  if (field === "greenDuration") light.greenDuration = Math.round(clampNumber(value, 3, 12) * 10) / 10;
+  if (field === "redDuration") light.redDuration = Math.round(clampNumber(value, 3, 12) * 10) / 10;
+  if (field === "phaseOffset") light.phaseOffset = Math.round(clampNumber(value, 0, 20) * 10) / 10;
+  mapToolState.notice = "신호등 타이밍을 수정했습니다.";
+  saveMapToolDraft();
+  refreshMapExport();
+}
+
+function updateMapRuleText(encoded: string, value: string): void {
+  const [ruleType, rawIndex, field] = encoded.split(":");
+  if (ruleType !== "shortcut" || field !== "label") return;
+  const shortcut = ensureMapTrafficRules().shortcuts[Number(rawIndex)];
+  if (!shortcut) return;
+  shortcut.label = value.slice(0, 24);
+  mapToolState.notice = "";
+  saveMapToolDraft();
+  refreshMapExport();
+}
+
+function ensureMapTrafficRules(): NonNullable<TrackSpec["trafficRules"]> {
+  mapToolState.track.trafficRules = normalizeTrafficRules(mapToolState.track.trafficRules, mapToolState.track.points.length);
+  return mapToolState.track.trafficRules;
+}
+
+function updateTrafficRulesAfterPointDelete(removedIndex: number): void {
+  const rules = ensureMapTrafficRules();
+  const maxIndex = Math.max(0, mapToolState.track.points.length - 1);
+  const shift = (index: number) => Math.min(maxIndex, index > removedIndex ? index - 1 : index);
+  rules.noPassingZones = rules.noPassingZones
+    .map((zone) => ({ ...zone, startPoint: shift(zone.startPoint), endPoint: shift(zone.endPoint) }))
+    .filter((zone) => zone.startPoint !== zone.endPoint);
+  rules.trafficLights = rules.trafficLights.map((light) => ({ ...light, pointIndex: shift(light.pointIndex) }));
+  rules.shortcuts = rules.shortcuts
+    .map((shortcut) => ({ ...shortcut, startPoint: shift(shortcut.startPoint), endPoint: shift(shortcut.endPoint) }))
+    .filter((shortcut) => shortcut.startPoint !== shortcut.endPoint);
 }
 
 function resetMapTool(): void {
@@ -578,6 +827,24 @@ function getMapCanvasPoint(event: MouseEvent, canvas: SVGSVGElement): Point {
   };
 }
 
+function getMapShortcutPreviewRoute(track: TrackSpec, startPoint: number, endPoint: number, offsetSign: 1 | -1): Point[] {
+  const start = track.points[normalizeMapPointIndex(startPoint, track.points.length)] ?? track.points[0];
+  const end = track.points[normalizeMapPointIndex(endPoint, track.points.length)] ?? start;
+  const mid = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2
+  };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const offset = Math.min(280, Math.max(90, track.roadWidth * 1.9));
+  const control = {
+    x: Math.round(mid.x + (-dy / length) * offset * offsetSign),
+    y: Math.round(mid.y + (dx / length) * offset * offsetSign)
+  };
+  return [start, control, end];
+}
+
 function deriveCameraAnchors(points: Point[]): Point[] {
   if (points.length === 0) return [];
   const first = points[0];
@@ -598,6 +865,13 @@ function clampNumber(value: unknown, min: number, max: number): number {
   const numberValue = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numberValue)) return min;
   return Math.max(min, Math.min(max, numberValue));
+}
+
+function normalizeMapPointIndex(index: number, total: number): number {
+  if (total <= 0) return 0;
+  const rounded = Math.round(index);
+  const normalized = rounded % total;
+  return normalized < 0 ? normalized + total : normalized;
 }
 
 function isTrackCategory(value: unknown): value is TrackSpec["category"] {

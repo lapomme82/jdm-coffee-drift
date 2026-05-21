@@ -35,6 +35,7 @@ export class RaceScene extends Phaser.Scene {
   private carFacingDirections = new Map<string, FacingDirection>();
   private shadowSprites = new Map<string, Phaser.GameObjects.Ellipse>();
   private nameLabels = new Map<string, Phaser.GameObjects.Text>();
+  private violationLabels = new Map<string, Phaser.GameObjects.Text>();
   private hazardLabels = new Map<string, Phaser.GameObjects.Text>();
   private smokeParticles: SmokeParticle[] = [];
   private trackGraphics!: Phaser.GameObjects.Graphics;
@@ -86,6 +87,7 @@ export class RaceScene extends Phaser.Scene {
     this.carFacingDirections.clear();
     this.shadowSprites.clear();
     this.nameLabels.clear();
+    this.violationLabels.clear();
     this.hazardLabels.clear();
 
     this.cameras.main.setBackgroundColor(this.engine.track.theme.sky);
@@ -619,12 +621,49 @@ export class RaceScene extends Phaser.Scene {
       nameLabel.setPosition(car.position.x, car.position.y + getNameOffsetY(car.car));
       nameLabel.setDepth(66 + (this.engine.cars.length - car.rank));
       nameLabel.setAlpha(car.finished ? 0.55 : 0.96);
+      this.updateViolationLabel(car, rankDepth);
 
       if (car.isDrifting && this.engine.elapsed > 1.5 && this.smokeTimer > 0.06) {
         this.addSmoke(car);
       }
     }
     if (this.smokeTimer > 0.06) this.smokeTimer = 0;
+  }
+
+  private updateViolationLabel(car: CarRuntime, rankDepth: number): void {
+    const pendingCount = car.pendingViolations.signal + car.pendingViolations.noPassing;
+    const showPenalty = car.penaltyTime > 0;
+    const text = showPenalty ? `단속 ${car.penaltyTime.toFixed(1)}` : pendingCount > 0 ? `YC ${pendingCount}` : "";
+    let label = this.violationLabels.get(car.id);
+    if (!text || car.finished) {
+      label?.setVisible(false);
+      return;
+    }
+    if (!label) {
+      label = this.add.text(car.position.x, car.position.y, text, {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "11px",
+        fontStyle: "900",
+        color: "#101317",
+        backgroundColor: "#ffd166",
+        padding: { x: 4, y: 2 }
+      }).setOrigin(0.5).setDepth(72);
+      this.violationLabels.set(car.id, label);
+    }
+    label
+      .setText(text)
+      .setPosition(car.position.x, car.position.y + getNameOffsetY(car.car) - 18)
+      .setDepth(72 + rankDepth)
+      .setVisible(true)
+      .setAlpha(showPenalty ? 1 : 0.92)
+      .setStyle({
+        fontFamily: "Arial, sans-serif",
+        fontSize: "11px",
+        fontStyle: "900",
+        color: showPenalty ? "#fff7ed" : "#101317",
+        backgroundColor: showPenalty ? "#c63f32" : "#ffd166",
+        padding: { x: 4, y: 2 }
+      });
   }
 
   private addSmoke(car: CarRuntime): void {
